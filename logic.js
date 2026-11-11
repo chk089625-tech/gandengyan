@@ -51,13 +51,15 @@ function canBeat(c, prev){
   if (c.rank === prev.rank + 1) return true;
   return (c.type === 'single' || c.type === 'pair') && c.rank === 15 && prev.rank < 15;
 }
-/* 选中的牌能否打出：返回采用的牌型，不行返回 null */
-function resolve(cards, prev, handSize){
-  for (const c of interpret(cards)){
-    if (c.type === 'joker1' && (prev || handSize !== 1)) continue;
-    if (canBeat(c, prev)) return c;
-  }
-  return null;
+/* 选中的牌所有合法出法。带王时同一组牌可能有几种解释（如 5 5 王 王：连对或四张炸），
+   普通牌型排在前、炸弹排在后，因为炸弹会让倍数翻倍，不能默认替玩家选 */
+function resolveAll(cards, prev, handSize){
+  const ok = interpret(cards).filter(c => !(c.type === 'joker1' && (prev || handSize !== 1)) && canBeat(c, prev));
+  return ok.filter(c => c.type !== 'bomb').concat(ok.filter(c => c.type === 'bomb'));
+}
+function resolve(cards, prev, handSize){ return resolveAll(cards, prev, handSize)[0] || null; }
+function sameCombo(a, b){
+  return !!a && !!b && a.type === b.type && a.rank === b.rank && a.len === b.len && (a.size || 0) === (b.size || 0);
 }
 function comboName(c){
   if (c.type === 'single') return '单张 ' + rankLabel(c.rank);
@@ -138,6 +140,6 @@ function aiChoose(hand, prev, minOpp){
   return p;
 }
 
-const api = {isJoker, rankLabel, makeDeck, shuffle, sortHand, interpret, canBeat, resolve, comboName, genPlays, rankPlays, aiChoose};
+const api = {isJoker, rankLabel, makeDeck, shuffle, sortHand, interpret, canBeat, resolve, resolveAll, sameCombo, comboName, genPlays, rankPlays, aiChoose};
 if (typeof module !== "undefined" && module.exports) module.exports = api; else root.GDY = api;
 })(typeof self !== "undefined" ? self : this);
