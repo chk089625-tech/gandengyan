@@ -780,57 +780,124 @@ function playFail(cards, prev){
 }
 /* ---------- 特效与音效：剩 1 张报警、炸弹 ---------- */
 const ALARM = '<span class="alarm">报警</span>';
-/* ---------- 背景音乐：程序现场演奏的国风五声音阶（宫商角徵羽），古筝式拨弦 + 低音长音 + 混响，每次旋律都不一样 ---------- */
+/* ---------- 背景音乐：原创的欢快民乐风（唢呐领奏 + 扬琴扫弦 + 蹦跳低音 + 梆子小镲 + 锣），每分钟 138 拍，16 小节一遍循环 ---------- */
 function makeBGM(ctx, out){
-  const R = Math.random;
-  const ROOT = 146.83, PENTA = [0, 2, 4, 7, 9];          // D 宫调
-  const note = d => { const o = Math.floor(d / 5), k = ((d % 5) + 5) % 5; return ROOT * Math.pow(2, o + PENTA[k] / 12); };
-  const BEAT = 60 / 66 / 2;                              // 每分钟 66 拍，按八分音符走
-  const DRONES = [[73.42, 110], [61.74, 92.5], [55, 82.41], [73.42, 110]];
-  const len = Math.floor(ctx.sampleRate * 2.8), ir = ctx.createBuffer(2, len, ctx.sampleRate);
-  for (let c = 0; c < 2; c++){ const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (R() * 2 - 1) * Math.pow(1 - i / len, 3); }
-  const inp = ctx.createGain(), dry = ctx.createGain(), rev = ctx.createConvolver(), wet = ctx.createGain();
-  dry.gain.value = .75; wet.gain.value = .5; rev.buffer = ir;
-  inp.connect(dry); dry.connect(out); inp.connect(rev); rev.connect(wet); wet.connect(out);
-  /* 拨弦：三角波 + 高八度正弦，快起慢收，音色由亮变暗；slide 是古筝的上滑音 */
-  function pluck(t, f, vol, slide){
-    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), g2 = ctx.createGain(), lp = ctx.createBiquadFilter();
-    o.type = 'triangle'; o2.type = 'sine'; g2.gain.value = .35;
-    if (slide){
-      o.frequency.setValueAtTime(f * .89, t); o.frequency.exponentialRampToValueAtTime(f, t + .1);
-      o2.frequency.setValueAtTime(f * 1.78, t); o2.frequency.exponentialRampToValueAtTime(f * 2, t + .1);
-    } else { o.frequency.value = f; o2.frequency.value = f * 2; }
-    lp.type = 'lowpass'; lp.frequency.setValueAtTime(3200, t); lp.frequency.exponentialRampToValueAtTime(650, t + 1.3);
-    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + 2.2);
-    o.connect(lp); o2.connect(g2); g2.connect(lp); lp.connect(g); g.connect(inp);
-    o.start(t); o2.start(t); o.stop(t + 2.3); o2.stop(t + 2.3);
-  }
-  function drone(t, fs, dur){
-    fs.forEach(f => {
-      const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
-      o.type = 'sine'; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = 600;
-      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.055, t + 1.8);
-      g.gain.setValueAtTime(.055, t + dur - 1.2); g.gain.exponentialRampToValueAtTime(.0001, t + dur + .6);
-      o.connect(lp); lp.connect(g); g.connect(inp); o.start(t); o.stop(t + dur + .7);
+  const BEAT = 60 / 138 / 2;                       // 八分音符
+  const KEY = 440;                                 // 1 = A4
+  const MAJ = {1:0, 2:2, 3:4, 4:5, 5:7, 6:9, 7:11};
+  /* 简谱：' 高八度，, 低八度，每个 - 多一个八分音符，0 是休止。一小节 8 个八分音符 */
+  const SONG = [
+    ['5 5 6 1\' 6 5 3-', 'I'], ['2 3 5 3 2- 1-', 'V'], ['6, 1 2 3 5 3 2 3', 'vi'], ['2----- 0-', 'V'],
+    ['5 5 6 1\' 2\' 1\' 6-', 'I'], ['5 6 5 3 2- 3-', 'V'], ['5 3 2 1 6, 1 2 3', 'vi'], ['1----- 0-', 'I'],
+    ['1\'- 6 1\' 2\'- 1\'-', 'IV'], ['6 5 6 1\' 5---', 'I'], ['3 5 6 5 3 2 1 2', 'vi'], ['3----- 0-', 'I'],
+    ['1\'- 6 1\' 3\'- 2\'-', 'IV'], ['1\' 6 5 6 1\'---', 'I'], ['2\' 1\' 6 5 3 5 6 2\'', 'V'], ['1\'--- 5 6 1\'-', 'I']
+  ];
+  const CHORD = {I:[0, 4, 7], IV:[5, 9, 12], V:[7, 11, 14], vi:[9, 12, 16], ii:[2, 5, 9]};
+  const ROOT = {I:0, IV:5, V:-5, vi:-3, ii:2};
+  const hz = (semi, base) => base * Math.pow(2, semi / 12);
+  /* 预先把旋律展开成事件：第几个八分音符开始、频率、长度 */
+  const MEL = [];
+  SONG.forEach(([bar], b) => {
+    let pos = b * 8;
+    bar.trim().split(/\s+/).forEach(tok => {
+      const m = /^([0-7])([',]*)(-*)$/.exec(tok), len = 1 + m[3].length;
+      if (m[1] !== '0'){
+        const oct = (m[2].match(/'/g) || []).length - (m[2].match(/,/g) || []).length;
+        MEL.push({at:pos, f:hz(MAJ[m[1]] + 12 * oct, KEY), len, deg:+m[1]});
+      }
+      pos += len;
     });
+  });
+  const len = Math.floor(ctx.sampleRate * 1.6), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++){ const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4); }
+  const bus = ctx.createGain(), rev = ctx.createConvolver(), wet = ctx.createGain(), comp = ctx.createDynamicsCompressor();
+  rev.buffer = ir; wet.gain.value = .18; bus.gain.value = 1;
+  bus.connect(comp); bus.connect(rev); rev.connect(wet); wet.connect(comp); comp.connect(out);
+  let noiseBuf = null;
+  function noise(){
+    if (!noiseBuf){ noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf; return n;
   }
-  let nextT = 0, step = 0, mel = 8;
+  function env(g, t, vol, a, hold, rel){
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + a);
+    g.gain.setValueAtTime(vol * .8, t + a + hold); g.gain.exponentialRampToValueAtTime(.0001, t + a + hold + rel);
+  }
+  /* 唢呐：锯齿波 + 方波，带通出鼻音，起音后加颤音 */
+  function lead(t, f, dur, vol){
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), bp = ctx.createBiquadFilter(), lp = ctx.createBiquadFilter();
+    const lfo = ctx.createOscillator(), lg = ctx.createGain();
+    o1.type = 'sawtooth'; o2.type = 'square'; o1.frequency.value = f; o2.frequency.value = f * 1.004;
+    lfo.frequency.value = 6; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(f * .009, t + Math.min(.25, dur * .6));
+    lfo.connect(lg); lg.connect(o1.frequency); lg.connect(o2.frequency);
+    bp.type = 'bandpass'; bp.frequency.value = Math.min(2600, f * 2.2); bp.Q.value = .7;
+    lp.type = 'lowpass'; lp.frequency.value = 4200;
+    const m2 = ctx.createGain(); m2.gain.value = .45;
+    o1.connect(bp); o2.connect(m2); m2.connect(bp); bp.connect(lp); lp.connect(g); g.connect(bus);
+    env(g, t, vol, .012, Math.max(.02, dur - .08), .07);
+    [o1, o2, lfo].forEach(o => { o.start(t); o.stop(t + dur + .1); });
+  }
+  /* 扬琴/琵琶：短促拨弦 */
+  function pluck(t, f, vol, dec){
+    const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o.type = 'triangle'; o.frequency.value = f;
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(5000, t); lp.frequency.exponentialRampToValueAtTime(900, t + dec);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .004); g.gain.exponentialRampToValueAtTime(.0001, t + dec);
+    o.connect(lp); lp.connect(g); g.connect(bus); o.start(t); o.stop(t + dec + .02);
+  }
+  function bass(t, f, dur){
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o.type = 'triangle'; o2.type = 'square'; o.frequency.value = f; o2.frequency.value = f;
+    const m = ctx.createGain(); m.gain.value = .25; lp.type = 'lowpass'; lp.frequency.value = 520;
+    o.connect(lp); o2.connect(m); m.connect(lp); lp.connect(g); g.connect(bus);
+    env(g, t, .2, .006, dur * .55, dur * .4);
+    o.start(t); o2.start(t); o.stop(t + dur + .05); o2.stop(t + dur + .05);
+  }
+  function drum(t, vol){
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(48, t + .18);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + .3);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + .32);
+  }
+  function block(t, vol, f){           // 梆子 / 木鱼
+    const o = ctx.createOscillator(), g = ctx.createGain(), bp = ctx.createBiquadFilter();
+    o.type = 'sine'; o.frequency.value = f || 1050; bp.type = 'bandpass'; bp.frequency.value = f || 1050; bp.Q.value = 6;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + .07);
+    o.connect(bp); bp.connect(g); g.connect(bus); o.start(t); o.stop(t + .08);
+  }
+  function hat(t, vol, dur){           // 小镲
+    const n = noise(), g = ctx.createGain(), hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 7000;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    n.connect(hp); hp.connect(g); g.connect(bus); n.start(t, Math.random() * .5); n.stop(t + dur + .02);
+  }
+  function gong(t){                    // 锣
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(205, t + 1.6);
+    o2.frequency.setValueAtTime(373, t); o2.frequency.exponentialRampToValueAtTime(330, t + 1.6);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.12, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + 2.2);
+    o.connect(g); o2.connect(g); g.connect(bus); o.start(t); o2.start(t); o.stop(t + 2.3); o2.stop(t + 2.3);
+    hat(t, .12, .9);
+  }
+  let nextT = 0, step = 0;
   return {
-    reset(t){ nextT = t; step = 0; mel = 8; },
-    /* 把 until 之前的音符排好；8 小节一句，第 4、8 小节句尾留白并落在宫音上 */
+    reset(t){ nextT = t; step = 0; },
     schedule(until){
       while (nextT < until){
-        const s = step % 64, bar = s >> 3, ci = Math.floor(step / 64) % DRONES.length;
-        if (s === 0) drone(nextT, DRONES[ci], 64 * BEAT);
-        if (s % 8 === 0) pluck(nextT, DRONES[ci][0] * 2, .09, false);
-        if (s % 8 === 4 && R() < .5) pluck(nextT, DRONES[ci][1] * 2, .06, false);
-        const tail = bar === 3 || bar === 7;
-        if (tail && s % 8 === 2) pluck(nextT, note(mel > 8 ? 10 : 5), .15, true);
-        else if (!(tail && s % 8 >= 3) && R() < (s % 2 ? .16 : .55)){
-          mel = Math.max(4, Math.min(13, mel + [-2, -1, -1, 0, 1, 1, 2][Math.floor(R() * 7)]));
-          pluck(nextT + R() * .015, note(mel), .13 + R() * .06, R() < .14);
-          if (R() < .08) pluck(nextT + BEAT / 2, note(mel + 1), .09, false);
-        }
+        const s = step % 128, bar = s >> 3, e = s & 7, loop = Math.floor(step / 128), t = nextT;
+        const ch = SONG[bar][1], root = ROOT[ch];
+        if (s === 0) gong(t);
+        if (e === 0 || e === 4){ drum(t, e === 0 ? .5 : .38); bass(t, hz(root + (e === 4 ? 7 : 0), 110), BEAT * 1.8); }
+        if (e === 2 || e === 6) block(t, .13);
+        if (e & 1){ hat(t, .05, .06); CHORD[ch].forEach((c, i) => pluck(t + i * .006, hz(c, 220), .035, .22)); }
+        /* 段尾加花：第二遍起每段最后两拍梆子连打 */
+        if (loop > 0 && (bar === 7 || bar === 15) && e >= 4) block(t + BEAT / 2, .09, 1350);
+        MEL.filter(m => m.at === s).forEach(m => {
+          const dur = m.len * BEAT;
+          if (m.len >= 2 && Math.random() < .5){            // 长音前加一个倚音，唢呐味更足
+            lead(t, m.f * Math.pow(2, 2 / 12), .05, .1);
+            lead(t + .05, m.f, dur - .05, .12);
+          } else lead(t, m.f, dur * .95, .12);
+        });
         nextT += BEAT; step++;
       }
     }
@@ -1042,7 +1109,7 @@ const FX = (() => {
       return;
     }
     if (!mOut){ mOut = ctx.createGain(); mOut.connect(ctx.destination); bgm = makeBGM(ctx, mOut); }
-    fadeIn(mOut, .5);
+    fadeIn(mOut, .3);
     bgm.reset(ctx.currentTime + .15);
     const run = () => bgm.schedule(ctx.currentTime + .3);
     run(); mTimer = setInterval(run, 100);
