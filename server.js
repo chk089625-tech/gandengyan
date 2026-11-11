@@ -9,6 +9,7 @@ const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/logic.js': ['logic.js', 'application/javascript; charset=utf-8'],
+  '/bgm.mp3': ['bgm.mp3', 'audio/mpeg'],
 };
 const BOT_NAMES = ['老张', '阿梅', '小六'];
 const avSeed = () => Math.floor(Math.random() * 4294967295) + 1;   // 国风头像的随机种子，网页按种子画头像
@@ -284,13 +285,108 @@ function send(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
 }
-function readBody(req) {
+function readBody(req, max) {
   return new Promise((ok, bad) => {
-    let s = '', n = 0;
-    req.on('data', d => { n += d.length; if (n > 10000) { bad(new Oops('请求太大')); req.destroy(); } else s += d; });
-    req.on('end', () => { try { ok(s ? JSON.parse(s) : {}); } catch (e) { bad(new Oops('请求格式不对')); } });
+    const parts = []; let n = 0;
+    req.on('data', d => { n += d.length; if (n > (max || 10000)) { bad(new Oops(max ? '截图太大了，换一张小一点的' : '请求太大')); req.destroy(); } else parts.push(d); });
+    req.on('end', () => { const s = Buffer.concat(parts).toString('utf8'); try { ok(s ? JSON.parse(s) : {}); } catch (e) { bad(new Oops('请求格式不对')); } });
     req.on('error', bad);
   });
+}
+
+/* ---------- 报错反馈：发成 GitHub Issue 永久保存；没配置令牌时留在内存和 Render 日志里 ---------- */
+const GH_TOKEN = process.env.GITHUB_TOKEN || '', GH_REPO = (process.env.GITHUB_REPO || '').trim(), ADMIN_KEY = process.env.ADMIN_KEY || '';
+const GH_API = process.env.GITHUB_API || 'https://api.github.com';   // 只有自动测试会改
+const KINDS = ['出牌规则不对', '界面显示问题', '卡住或掉线', '声音问题', '其他建议'];
+const reports = [], reportLog = new Map();
+const clip = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f]/g, '').slice(0, n);
+const noPing = t => t.replace(/@/g, '@​');                 // 防止在 Issue 里 @ 到别人
+function bjTime(ms) { return new Date(ms + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 19) + '（北京时间）'; }
+function tableSnapshot(r, pid) {
+  if (!r) return null;
+  return { phase: r.phase, v: r.v, turn: r.turn, dealer: r.dealer, mult: r.mult, deck: r.deck.length, last: r.last ? L.comboName(r.last.combo) : null,
+    msg: r.msg, players: r.players.map((p, i) => ({ name: p.name, ai: p.ai, auto: !!p.auto, count: (r.hands[i] || []).length, me: p.pid === pid })),
+    members: r.members.map(m => ({ name: m.name, online: online(r, m.pid), host: m.pid === r.host })) };
+}
+async function gh(method, url, body) {
+  const res = await fetch(GH_API + '/repos/' + GH_REPO + url, { method,
+    headers: { Authorization: 'Bearer ' + GH_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'gandengyan-feedback', 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error('GitHub ' + res.status + ' ' + (data.message || '')); e.status = res.status; throw e; }
+  return data;
+}
+/* 截图存到单独的 feedback 分支，不碰 main，Render 不会因此重新部署 */
+let branchReady = null;
+function ensureBranch() {
+  if (!branchReady) branchReady = (async () => {
+    try { await gh('GET', '/git/ref/heads/feedback'); }
+    catch (e) {
+      if (e.status !== 404) throw e;
+      const repo = await gh('GET', '');
+      const base = await gh('GET', '/git/ref/heads/' + repo.default_branch);
+      await gh('POST', '/git/refs', { ref: 'refs/heads/feedback', sha: base.object.sha });
+    }
+  })().catch(e => { branchReady = null; throw e; });
+  return branchReady;
+}
+async function postIssue(rep) {
+  let shot = '（没有附截图）';
+  if (rep.image) {
+    try {
+      await ensureBranch();
+      await gh('PUT', '/contents/feedback/' + rep.id + '.jpg', { message: '反馈截图 ' + rep.id, branch: 'feedback', content: rep.image });
+      shot = '![截图](https://github.com/' + GH_REPO + '/blob/feedback/feedback/' + rep.id + '.jpg?raw=true)';
+    } catch (e) { shot = '（截图上传失败：' + e.message + '）'; }
+  }
+  const body = [
+    '**类型**：' + rep.kind, '', '**描述**：', '', rep.text.split('\n').map(l => '> ' + noPing(l)).join('\n'), '', '**截图**：' + shot, '',
+    '| 项目 | 内容 |', '|---|---|',
+    '| 玩家 | ' + noPing(rep.name) + '（身份 ' + rep.pid.slice(0, 6) + '…） |',
+    '| 房间 | ' + (rep.room || '没进房间') + ' |',
+    '| 时间 | ' + bjTime(rep.at) + ' |',
+    '| 设备 | ' + noPing(rep.info.ua).replace(/\|/g, '/') + ' |',
+    '| 屏幕 | ' + rep.info.screen + ' |', '',
+    '<details><summary>最近操作记录（' + rep.log.length + ' 条）</summary>', '', '```', ...rep.log, '```', '</details>', '',
+    '<details><summary>服务器上的牌桌快照</summary>', '', '```json', JSON.stringify(rep.table, null, 1).replace(/`/g, "'"), '```', '</details>'
+  ].join('\n');
+  const title = '【' + rep.kind + '】' + rep.text.split('\n')[0].slice(0, 40);
+  try { return await gh('POST', '/issues', { title, body, labels: ['测试反馈'] }); }
+  catch (e) { if (e.status === 422) return gh('POST', '/issues', { title, body }); throw e; }
+}
+async function takeReport(b, ip) {
+  const now = Date.now(), log = (reportLog.get(ip) || []).filter(t => now - t < 10 * 60000);
+  if (log.length >= 5) throw new Oops('提交太频繁了，过几分钟再试');
+  const text = clip(b.text, 1000).trim();
+  if (!text) throw new Oops('先写一下遇到了什么问题');
+  let image = null;
+  if (typeof b.image === 'string' && b.image) {
+    const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(b.image);
+    if (!m || m[1].length > 1500000) throw new Oops('截图格式不对，换一张试试');
+    image = m[1];
+  }
+  log.push(now); reportLog.set(ip, log);
+  const r = rooms.get(String(b.room || ''));
+  const rep = { id: now.toString(36) + Math.random().toString(36).slice(2, 6), at: now, pid: b.pid, name: clip(b.name, 12) || '无名牌友',
+    room: r ? r.code : '', kind: KINDS.includes(b.kind) ? b.kind : '其他建议', text, image,
+    info: { ua: clip(b.info && b.info.ua, 300), screen: clip(b.info && b.info.screen, 40) },
+    log: (Array.isArray(b.log) ? b.log : []).slice(-40).map(x => clip(x, 220).replace(/`/g, "'")), table: tableSnapshot(r, b.pid) };
+  reports.push(rep); if (reports.length > 100) reports.shift();
+  console.log('[报错反馈]', JSON.stringify({ ...rep, image: rep.image ? '（附截图）' : null }));
+  if (GH_TOKEN && GH_REPO) {
+    const send = () => postIssue(rep).then(d => { rep.issue = d.html_url; console.log('[报错反馈] 已发到 GitHub', d.html_url); });
+    send().catch(e => { console.error('[报错反馈] 发到 GitHub 失败，30 秒后重试', e.message); setTimeout(() => send().catch(e2 => console.error('[报错反馈] 重试也失败', e2.message)), 30000); });
+  }
+  return rep.id;
+}
+function adminPage(res, key) {
+  if (!ADMIN_KEY || key !== ADMIN_KEY) return send(res, 404, { error: '没有这个地址' });
+  const h = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const rows = reports.slice().reverse().map(r => '<section><h3>【' + h(r.kind) + '】' + h(r.name) + ' · 房间 ' + h(r.room || '-') + ' · ' + h(bjTime(r.at)) + '</h3><p>' + h(r.text).replace(/\n/g, '<br>') + '</p>'
+    + (r.image ? '<img src="data:image/jpeg;base64,' + r.image + '">' : '') + (r.issue ? '<p><a href="' + h(r.issue) + '">GitHub Issue</a></p>' : '')
+    + '<details><summary>操作记录</summary><pre>' + h(r.log.join('\n')) + '</pre></details><details><summary>牌桌快照</summary><pre>' + h(JSON.stringify(r.table, null, 1)) + '</pre></details></section>').join('');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end('<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>测试反馈</title><style>body{font:14px/1.6 sans-serif;max-width:760px;margin:20px auto;padding:0 14px}section{border-bottom:1px solid #ddd;padding:12px 0}img{max-width:100%;border:1px solid #ccc}pre{white-space:pre-wrap;background:#f5f5f5;padding:8px}</style><h1>测试反馈（服务器重启后清空，共 ' + reports.length + ' 条）</h1>' + (rows || '<p>还没有反馈。</p>'));
 }
 function clientIp(req) {
   return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
@@ -324,6 +420,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': { mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav' }[ext], 'Cache-Control': 'public, max-age=86400' });
       return fs.createReadStream(fp).pipe(res);
     }
+    if (req.method === 'GET' && u.pathname === '/admin/reports') return adminPage(res, u.searchParams.get('key'));
     if (req.method === 'GET' && u.pathname === '/healthz') return send(res, 200, { ok: true, rooms: rooms.size });
     if (req.method === 'GET' && u.pathname === '/api/events') {
       const pid = u.searchParams.get('pid');
@@ -340,6 +437,11 @@ const server = http.createServer(async (req, res) => {
       attach(r, pid, res);
       req.on('close', () => detach(r, pid, res));
       return;
+    }
+    if (req.method === 'POST' && u.pathname === '/api/report') {
+      const b = await readBody(req, 2200000);
+      if (!validPid(b.pid)) throw new Oops('身份无效');
+      return send(res, 200, { id: await takeReport(b, clientIp(req)) });
     }
     if (req.method === 'POST' && u.pathname.startsWith('/api/')) {
       const b = await readBody(req);

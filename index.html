@@ -133,6 +133,14 @@ button:focus-visible,input:focus-visible{outline:1px solid var(--gold);outline-o
 .combo .bad{color:#e48a6f}
 .combo button{border:1px solid var(--hair);border-radius:2px;padding:3px 12px;font-size:12px;color:var(--text)}
 .combo button.on{color:#1a140b;border-color:var(--gold);background:var(--gold);font-weight:600}
+.kinds{display:flex;flex-wrap:wrap;gap:8px}
+.kinds button{border:1px solid var(--hair);border-radius:2px;padding:5px 12px;font-size:13px;color:var(--text);letter-spacing:.04em}
+.kinds button.on{background:var(--gold);border-color:var(--gold);color:#1a140b;font-weight:600}
+.field textarea{font:inherit;font-size:15px;line-height:1.6;color:var(--text);background:rgba(0,0,0,.3);border:1px solid rgba(200,169,106,.3);border-radius:2px;padding:10px 12px;width:100%;resize:vertical}
+.field textarea:focus{outline:none;border-color:var(--gold)}
+.field input[type=file]{font-size:13px;color:var(--mute)}
+.shot{max-width:100%;max-height:130px;align-self:flex-start;border:1px solid var(--hair);border-radius:2px}
+.done{font-family:var(--serif);font-size:15px;line-height:1.8}
 .watch{align-self:center;color:var(--mute);font-size:13px;text-align:center;letter-spacing:.06em}
 .acts{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
 .btn{min-width:104px;padding:10px 24px;border-radius:2px;font-family:var(--serif);font-weight:600;font-size:15px;letter-spacing:.42em;text-indent:.42em;color:var(--text);
@@ -261,6 +269,7 @@ body.shake .table,body.shake .me{animation:fxshake .5s linear}
     <button class="linkbtn" id="musicBtn" type="button" aria-pressed="true">音乐 开</button>
     <button class="linkbtn" id="soundBtn" type="button">声音 全开</button>
     <button class="linkbtn" id="rulesBtn" type="button">规则</button>
+    <button class="linkbtn" type="button" data-act="report">报错</button>
   </div>
 </header>
 
@@ -308,12 +317,31 @@ body.shake .table,body.shake .me{animation:fxshake .5s linear}
     </div>
     <p class="warn" id="homeErr" hidden></p>
     <p class="note">不用注册。这台设备会记住你，掉线后重新打开链接就能回到原来的座位。</p>
-    <p class="note">内测版：房间和积分不会永久保存，服务器重启或长时间没人玩时会清空。</p>
+    <p class="note">内测版：房间和积分不会永久保存，服务器重启或长时间没人玩时会清空。遇到问题可以<button class="tiny" type="button" data-act="report">报错反馈</button></p>
   </form>
 </div>
 
 <div class="veil" id="lobby"><div class="sheet" id="lobbySheet"></div></div>
 <div class="veil" id="result"><div class="sheet" id="resultSheet"></div></div>
+
+<div class="veil" id="report">
+  <form class="sheet" id="reportForm">
+    <h2>报错<em>反馈</em></h2>
+    <div class="field">遇到的是哪类问题
+      <div class="kinds" id="kinds" role="radiogroup" aria-label="问题类型"></div>
+    </div>
+    <label class="field" for="repText">具体发生了什么
+      <textarea id="repText" maxlength="1000" rows="4" placeholder="比如：我出了 3 4 5，提示说压不住，但上家出的是 2 3 4"></textarea>
+    </label>
+    <label class="field" for="repImg">附一张截图（可选）
+      <input type="file" id="repImg" accept="image/*">
+    </label>
+    <img class="shot" id="repShot" alt="截图预览" hidden>
+    <p class="note">提交时会自动附上：你的昵称、房间号、手机和浏览器型号、最近的操作记录和牌桌状态，方便查问题。</p>
+    <p class="warn" id="repErr" hidden></p>
+    <div class="row"><button class="btn" type="button" id="repCancel">取消</button><button class="btn go" type="submit" id="repSend">提交</button></div>
+  </form>
+</div>
 
 <div class="veil" id="rules">
   <div class="sheet">
@@ -326,6 +354,7 @@ body.shake .table,body.shake .me{animation:fxshake .5s linear}
       <li>炸弹：三张相同是炸弹，四张相同更大，一对王最大。炸弹可以压任何牌，大炸弹压小炸弹。每出一个炸弹，本局倍数翻倍。</li>
       <li>一圈没人要，最后出牌的人从牌堆摸一张，再接着随便出。牌堆摸完就不再摸。</li>
       <li>点“提示”会帮你选好能出的牌；压不住时点“提示”直接不要。</li>
+      <li>测试中遇到问题，点右上角“报错”告诉我们。</li>
       <li>结算：输家按剩余张数 × 倍数付分给赢家；一张牌都没出过的输家再翻倍。赢家下一局坐庄。</li>
       <li>每手 30 秒。超时或掉线由电脑托管代打；掉线的人重新打开链接会自动接回，超时托管的人点“取消托管”。</li>
     </ul>
@@ -363,12 +392,23 @@ async function api(p, body){
   if (!res.ok) throw new Error(data.error || '服务器没响应，稍后再试');
   return data;
 }
-function say(text, err){ localMsg = {text, err:!!err}; }
+/* 最近 40 条操作记录，报错时一起提交 */
+const LOG = [];
+let netDownSince = 0;
+function logEv(t){
+  const d = new Date(), hh = n => String(n).padStart(2, '0');
+  LOG.push(hh(d.getHours()) + ':' + hh(d.getMinutes()) + ':' + hh(d.getSeconds()) + ' ' + String(t).slice(0, 200));
+  if (LOG.length > 40) LOG.shift();
+}
+window.addEventListener('error', e => logEv('程序报错：' + (e.message || '') + ' @' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '')));
+window.addEventListener('unhandledrejection', e => logEv('程序报错：' + ((e.reason && e.reason.message) || e.reason)));
+function say(text, err){ localMsg = {text, err:!!err}; if (err) logEv('提示错误：' + text); }
 /* 一次只发一个动作：上一个没回来之前按钮保持不可点，防止连点重复出牌 */
 let busy = false;
 function act(type, extra){
   if (busy) return Promise.resolve();
   busy = true; render();
+  logEv('操作 ' + type + (extra && extra.cards ? ' ' + extra.cards.length + '张' + (extra.combo ? ' ' + comboName(extra.combo) : '') : ''));
   return api('/api/act', Object.assign({room, type}, extra))
     .catch(e => { say(e.message, true); })
     .then(() => { busy = false; render(); });
@@ -388,9 +428,18 @@ function enter(code){
     sel.forEach(id => { if (!mine.has(id)) sel.delete(id); });
     if (!prev || prev.v !== V.v){ hintIdx = -1; if (!prev || prev.turn !== V.turn || prev.phase !== V.phase) localMsg = null; }
     leftAt = V.left ? Date.now() + V.left * 1000 : 0;
+    if (netDownSince){ logEv('连接恢复（断了 ' + Math.round((Date.now() - netDownSince) / 1000) + ' 秒）'); netDownSince = 0; }
+    if (!prev || prev.phase !== V.phase) logEv('阶段 ' + V.phase + '，座位 ' + (V.you >= 0 ? V.you + 1 : '观战'));
+    const g = V.msg;
+    if (g && g.n && (!prev || !prev.msg || prev.msg.n !== g.n)){
+      const who = V.players[g.i] ? (g.i === V.you ? '我' : V.players[g.i].name) : '?';
+      logEv(g.k === 'play' ? who + ' 出 ' + comboName(g.combo) + (V.players[g.i] ? '，剩 ' + V.players[g.i].count + ' 张' : '')
+        : g.k === 'pass' ? who + ' 不要' : g.k === 'draw' ? who + ' 摸牌' : who + ' 坐庄发牌');
+    }
     render();
   };
   es.onerror = () => {
+    if (!netDownSince){ netDownSince = Date.now(); logEv('连接断开'); }
     if (es.readyState === 2){ exitRoom('房间不存在或已经解散，重新创建一个吧。'); }
     else { netDown = true; render(); }
   };
@@ -921,10 +970,11 @@ const FX = (() => {
       if (ctx && ctx.state === 'suspended') ctx.resume();
     } catch(e){}
     if (ctx && !BUF.__pre){ BUF.__pre = 1; preload(); }
-    if (ctx && musicOn) startMusic();
+    if (musicOn) startMusic();
     if (!unlocked && canSpeak()){ unlocked = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch(e){} }
   };
-  document.addEventListener('pointerdown', wake);
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, wake, {passive:true}));
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}   // iOS 16.4+：静音键拨下时网页声音照样出
   btn.onclick = () => {
     level = level === 'all' ? 'fx' : level === 'fx' ? 'off' : 'all';
     try { localStorage.setItem('gdy-sound', level); } catch(e){}
@@ -1020,7 +1070,7 @@ const FX = (() => {
         if (m) (CLIPS[m[1]] = CLIPS[m[1]] || []).push('voice/' + f);
       });
       if (ctx) preload();
-      if (CLIPS.bgm && mTimer){ stopMusic(); setTimeout(startMusic, 600); }
+      if (CLIPS.bgm) useMusicFile(CLIPS.bgm[0]);
     }).catch(() => {});
   } catch(e){}
   function loadClip(url){
@@ -1088,36 +1138,83 @@ const FX = (() => {
     voice('baojing', '报警，只剩一张', seat, true);
   }
 
-  /* ---- 背景音乐开关：服务器 voice 文件夹里有 bgm.mp3 就循环播那首，没有就用程序演奏的国风音乐 ---- */
-  let musicOn = true, mOut = null, bgm = null, mTimer = null, fileSrc = null, fileOut = null, fileLoading = false;
+  /* ---- 背景音乐：页面打开时先把整首曲子在后台合成成一段音频，再用网页自带的音频播放器循环播放。
+     手机会把它当成"媒体播放"：不受 iPhone 静音键影响，也不用每秒现场合成音符，更省电。
+     服务器 voice 文件夹里有 bgm.mp3 就改播那首；浏览器太旧合成不了时，退回现场演奏。 ---- */
+  let musicOn = true, mOut = null, bgm = null, mTimer = null, bgmUrl = '', bgmFile = '', rendering = null, wasPlaying = false;
   try { musicOn = localStorage.getItem('gdy-music') !== 'off'; } catch(e){}
   const mbtn = document.getElementById('musicBtn');
   const mpaint = () => { mbtn.textContent = musicOn ? '音乐 开' : '音乐 关'; mbtn.setAttribute('aria-pressed', String(musicOn)); };
   mpaint();
-  const fadeIn = (g, to) => { const t = ctx.currentTime; g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(to, t + 2); };
-  function startMusic(){
-    if (!ctx || !musicOn || mTimer || fileSrc || fileLoading) return;
-    if (CLIPS.bgm){
-      fileLoading = true;
-      loadClip(CLIPS.bgm[0]).then(buf => {
-        fileLoading = false;
-        if (!musicOn || fileSrc || mTimer) return;
-        if (!fileOut){ fileOut = ctx.createGain(); fileOut.connect(ctx.destination); }
-        fadeIn(fileOut, .35);
-        fileSrc = ctx.createBufferSource(); fileSrc.buffer = buf; fileSrc.loop = true; fileSrc.connect(fileOut); fileSrc.start();
-      }).catch(() => { fileLoading = false; delete CLIPS.bgm; startMusic(); });
-      return;
-    }
+  const player = new Audio();
+  player.loop = true; player.preload = 'auto'; player.setAttribute('playsinline', ''); player.setAttribute('webkit-playsinline', '');
+  function wavUrl(data, sr){
+    const n = data.length, ab = new ArrayBuffer(44 + n * 2), v = new DataView(ab);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, data[i])) * 32767, true);
+    return URL.createObjectURL(new Blob([ab], {type:'audio/wav'}));
+  }
+  /* 合成一遍（16 小节）再多 3 秒，把尾音叠回开头，循环时就接得上 */
+  function renderLoop(){
+    if (rendering) return rendering;
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC) return rendering = Promise.reject(new Error('no offline'));
+    rendering = new Promise((ok, bad) => {
+      try {
+        const sr = 22050, loopSec = 128 * 60 / 138 / 2, tail = 3, N = Math.round(loopSec * sr);
+        const oc = new OAC(1, N + tail * sr, sr), out = oc.createGain();
+        out.gain.value = .3; out.connect(oc.destination);
+        const m = makeBGM(oc, out); m.reset(0); m.schedule(loopSec - .001);
+        const done = buf => {
+          const d = buf.getChannelData(0), loop = d.slice(0, N);
+          for (let i = 0; i < d.length - N; i++) loop[i] += d[N + i];
+          ok(bgmUrl = wavUrl(loop, sr));
+        };
+        const r = oc.startRendering();
+        if (r && r.then) r.then(done, bad); else oc.oncomplete = e => done(e.renderedBuffer);
+      } catch(e){ bad(e); }
+    });
+    return rendering;
+  }
+  /* 默认曲子是和网页放在一起的 bgm.mp3：打开页面就预加载，第一次点屏幕立刻能播 */
+  const DEFAULT_BGM = 'bgm.mp3';
+  let defaultBroken = false;
+  player.addEventListener('error', () => {
+    if (player.dataset.src === DEFAULT_BGM){ defaultBroken = true; player.dataset.src = ''; if (musicOn) startMusic(); }
+  });
+  if (musicOn){ player.dataset.src = DEFAULT_BGM; player.src = DEFAULT_BGM; }
+  function playEl(src, vol){
+    if (player.dataset.src !== src){ player.dataset.src = src; player.src = src; }
+    try { player.volume = vol; } catch(e){}
+    if (!player.paused) return;
+    const p = player.play();
+    if (p && p.catch) p.catch(() => {});          // 被浏览器拦了就等下一次点屏幕再试
+  }
+  function startGenerated(){
+    if (!ctx || mTimer) return;
     if (!mOut){ mOut = ctx.createGain(); mOut.connect(ctx.destination); bgm = makeBGM(ctx, mOut); }
-    fadeIn(mOut, .3);
-    bgm.reset(ctx.currentTime + .15);
+    const t = ctx.currentTime; mOut.gain.cancelScheduledValues(t); mOut.gain.setValueAtTime(.0001, t); mOut.gain.exponentialRampToValueAtTime(.3, t + 2);
+    bgm.reset(t + .15);
     const run = () => bgm.schedule(ctx.currentTime + .3);
     run(); mTimer = setInterval(run, 100);
   }
+  function startMusic(){
+    if (!musicOn || document.hidden) return;
+    if (bgmFile) return playEl(bgmFile, .4);
+    if (!defaultBroken) return playEl(DEFAULT_BGM, 1);
+    if (bgmUrl) return playEl(bgmUrl, 1);
+    renderLoop().then(() => { if (musicOn && !bgmFile) playEl(bgmUrl, 1); }).catch(startGenerated);
+  }
   function stopMusic(){
+    try { player.pause(); } catch(e){}
     if (mTimer){ clearInterval(mTimer); mTimer = null; }
-    if (mOut){ mOut.gain.cancelScheduledValues(ctx.currentTime); mOut.gain.setTargetAtTime(0, ctx.currentTime, .25); }
-    if (fileSrc){ const f = fileSrc; fileSrc = null; fileOut.gain.cancelScheduledValues(ctx.currentTime); fileOut.gain.setTargetAtTime(0, ctx.currentTime, .25); setTimeout(() => { try { f.stop(); } catch(e){} }, 1500); }
+    if (mOut && ctx){ mOut.gain.cancelScheduledValues(ctx.currentTime); mOut.gain.setTargetAtTime(0, ctx.currentTime, .25); }
+  }
+  function useMusicFile(url){
+    bgmFile = url;
+    if (musicOn && !player.paused){ player.pause(); playEl(bgmFile, .4); }
   }
   mbtn.onclick = () => {
     musicOn = !musicOn;
@@ -1125,10 +1222,16 @@ const FX = (() => {
     mpaint(); wake();
     if (musicOn) startMusic(); else stopMusic();
   };
-  /* 切到后台就整体暂停声音，回来再继续，省电 */
+  /* 切到后台就暂停声音，回来再继续，省电 */
   document.addEventListener('visibilitychange', () => {
-    if (!ctx) return;
-    try { if (document.hidden) ctx.suspend(); else ctx.resume(); } catch(e){}
+    if (document.hidden){
+      wasPlaying = !player.paused || !!mTimer;
+      stopMusic();
+      if (ctx) try { ctx.suspend(); } catch(e){}
+    } else {
+      if (ctx) try { ctx.resume(); } catch(e){}
+      if (wasPlaying && musicOn) startMusic();
+    }
   });
   return {
     reset(){ init = false; last = null; wasTurn = null; lastTick = ''; },
@@ -1286,6 +1389,7 @@ function renderLobby(){
   h += '<div class="row"><button class="btn" type="button" data-act="leave">离开房间</button>'
     + (V.host ? '<button class="btn go" type="button" data-act="start"' + (can ? '' : ' disabled') + '>开始发牌</button>' : '') + '</div>';
   if (V.host && !can) h += '<p class="warn">至少要两个人，或者勾上电脑补位。</p>';
+  h += '<p class="note">遇到问题？<button class="tiny" type="button" data-act="report">报错反馈</button></p>';
   $('lobbySheet').innerHTML = h;
 }
 /* 弹窗挡住了底部消息，所以连接状态和操作错误在弹窗里再显示一次 */
@@ -1307,6 +1411,7 @@ function renderResult(){
   h += statusLine();
   if (V.host) h += '<div class="row"><button class="btn" type="button" data-act="lobby"' + (busy ? ' disabled' : '') + '>回房间</button><button class="btn go" type="button" data-act="start"' + (busy ? ' disabled' : '') + '>再来一局</button></div>';
   else h += '<p class="note">等房主开下一局。</p>';
+  h += '<p class="note">遇到问题？<button class="tiny" type="button" data-act="report">报错反馈</button></p>';
   $('resultSheet').innerHTML = h;
 }
 
@@ -1332,10 +1437,78 @@ $('hintBtn').onclick = () => {
   say('提示：' + comboName(p.combo) + (list.length > 1 ? '（再点换一手）' : ''));
   render();
 };
+
+/* ---------- 报错反馈 ---------- */
+const KINDS = ['出牌规则不对', '界面显示问题', '卡住或掉线', '声音问题', '其他建议'];
+let repKind = KINDS[0], repImage = '', repSending = false;
+function openReport(){
+  $('kinds').innerHTML = KINDS.map(k => '<button type="button" role="radio" data-kind="' + k + '" aria-checked="' + (k === repKind) + '"' + (k === repKind ? ' class="on"' : '') + '>' + k + '</button>').join('');
+  $('repErr').hidden = true;
+  if ($('reportForm').dataset.done){ resetReport(); }
+  $('report').classList.add('on');
+  logEv('打开报错');
+}
+function resetReport(){
+  const f = $('reportForm'); delete f.dataset.done;
+  f.querySelector('.done') && f.querySelector('.done').remove();
+  Array.from(f.children).forEach(el => { if (el.dataset.keep !== undefined) delete el.dataset.keep; });
+  ['repText','repImg'].forEach(id => $(id).value = '');
+  repImage = ''; $('repShot').hidden = true;
+  f.querySelectorAll('.field,.note,.row').forEach(el => el.hidden = false);
+  $('repSend').hidden = false; $('repCancel').textContent = '取消';
+}
+$('kinds').addEventListener('click', e => {
+  const b = e.target.closest('[data-kind]'); if (!b) return;
+  repKind = b.dataset.kind;
+  $('kinds').querySelectorAll('button').forEach(x => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-checked', on); });
+});
+/* 截图压到最长边 1280、JPEG，手机原图几 MB 也能传 */
+$('repImg').addEventListener('change', () => {
+  const f = $('repImg').files[0];
+  repImage = ''; $('repShot').hidden = true;
+  if (!f) return;
+  const url = URL.createObjectURL(f), img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 1280 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    let q = .72; repImage = c.toDataURL('image/jpeg', q);
+    while (repImage.length > 1400000 && q > .3){ q -= .15; repImage = c.toDataURL('image/jpeg', q); }
+    $('repShot').src = repImage; $('repShot').hidden = false;
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => { $('repErr').textContent = '这张图片打不开，换一张试试。'; $('repErr').hidden = false; URL.revokeObjectURL(url); };
+  img.src = url;
+});
+$('repCancel').onclick = () => $('report').classList.remove('on');
+$('report').addEventListener('click', e => { if (e.target === $('report')) $('report').classList.remove('on'); });
+$('reportForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (repSending) return;
+  const text = $('repText').value.trim();
+  if (!text){ $('repErr').textContent = '先写一下遇到了什么问题。'; $('repErr').hidden = false; return $('repText').focus(); }
+  repSending = true; $('repSend').disabled = true; $('repSend').textContent = '提交中…'; $('repErr').hidden = true;
+  try {
+    const d = await api('/api/report', {name:$('nameIn').value.trim(), room, kind:repKind, text, image:repImage,
+      info:{ua:navigator.userAgent, screen:screen.width + '×' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x，窗口 ' + innerWidth + '×' + innerHeight}, log:LOG.slice()});
+    logEv('已提交报错 ' + d.id);
+    const f = $('reportForm'); f.dataset.done = '1';
+    f.querySelectorAll('.field,.note,.shot').forEach(el => el.hidden = true);
+    $('repSend').hidden = true; $('repCancel').textContent = '关闭';
+    const p = document.createElement('p'); p.className = 'done';
+    p.textContent = '收到了，谢谢！反馈编号 ' + d.id + '。如果问题还在，可以接着玩，有新情况再提交一次。';
+    f.insertBefore(p, f.querySelector('.row'));
+  } catch(err){
+    $('repErr').textContent = err.message + '。可以截图发到群里。'; $('repErr').hidden = false;
+  } finally {
+    repSending = false; $('repSend').disabled = false; $('repSend').textContent = '提交';
+  }
+});
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
   const a = b.dataset.act;
-  if (a === 'leave'){ if (room){ const r = room; api('/api/act', {room:r, type:'leave'}).catch(() => {}); exitRoom(''); } }
+  if (a === 'report') openReport();
+  else if (a === 'leave'){ if (room){ const r = room; api('/api/act', {room:r, type:'leave'}).catch(() => {}); exitRoom(''); } }
   else if (a === 'copy'){
     const done = () => { b.textContent = '已复制'; };
     const manual = () => { b.textContent = '请长按上面的链接复制'; };
