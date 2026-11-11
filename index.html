@@ -141,6 +141,25 @@ button:focus-visible,input:focus-visible{outline:1px solid var(--gold);outline-o
 .field input[type=file]{font-size:13px;color:var(--mute)}
 .shot{max-width:100%;max-height:130px;align-self:flex-start;border:1px solid var(--hair);border-radius:2px}
 .done{font-family:var(--serif);font-size:15px;line-height:1.8}
+.progress{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid rgba(200,169,106,.28);background:rgba(200,169,106,.05);border-radius:2px}
+.progress .ptop{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;font-family:var(--serif);font-size:14px;letter-spacing:.08em;color:var(--mute)}
+.progress b{font-size:24px;font-weight:600;color:var(--text);margin:0 2px}
+.progress .pleft b{color:var(--gold);font-size:30px}
+.progress em{font-style:normal;margin-left:8px;font-size:12px;color:#1a140b;background:var(--gold);padding:2px 8px;border-radius:2px;letter-spacing:.06em}
+.pbar{display:flex;gap:3px}
+.pbar i{flex:1;height:5px;border-radius:2px;background:rgba(200,169,106,.16)}
+.pbar i.done{background:var(--gold)}
+.matchinfo{font-family:var(--serif);font-size:15px;color:var(--text);letter-spacing:.06em}
+.sheet table.rank td{vertical-align:middle}
+.sheet table.rank td:nth-child(2){text-align:left}
+.sheet table.rank .who2{display:inline-flex;align-items:center;gap:10px;font-family:var(--serif);font-weight:600}
+.sheet table.rank .rav{width:28px;height:28px;flex:none;border-radius:50%;overflow:hidden;box-shadow:0 0 0 1px var(--gold-soft)}
+.sheet table.rank .rav svg{display:block;width:100%;height:100%}
+.sheet table.rank tr.myrow td{background:rgba(200,169,106,.07)}
+.title{display:inline-block;padding:1px 8px;border:1px solid var(--gold-soft);border-radius:2px;color:var(--gold);font-family:var(--serif);font-weight:600;font-size:12px;letter-spacing:.15em;text-indent:.15em}
+.title.top{background:var(--gold);color:#1a140b;border-color:var(--gold)}
+.lastround{font-size:13px;color:var(--mute)}
+.lastround summary{cursor:pointer;margin-bottom:8px}
 .watch{align-self:center;color:var(--mute);font-size:13px;text-align:center;letter-spacing:.06em}
 .acts{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
 .btn{min-width:104px;padding:10px 24px;border-radius:2px;font-family:var(--serif);font-weight:600;font-size:15px;letter-spacing:.42em;text-indent:.42em;color:var(--text);
@@ -204,6 +223,7 @@ button:focus-visible,input:focus-visible{outline:1px solid var(--gold);outline-o
   .table{padding:0 6px;gap:4px}
   .bar{padding:10px 10px;gap:8px}
   .chip,.linkbtn{padding:1px 7px;font-size:11px;letter-spacing:.02em}
+  .deckchip,.pc{display:none}
   .bar{flex-wrap:nowrap;align-items:flex-start}
   .seal{font-size:12px;padding:6px 3px 6px 7px;flex:none}
   .seat{gap:8px;padding:4px}
@@ -262,10 +282,11 @@ body.shake .table,body.shake .me{animation:fxshake .5s linear}
   <div class="seal">干瞪眼</div>
   <div class="chips">
     <span class="chip" id="roomChip" hidden>房间<b id="roomN"></b></span>
+    <span class="chip" id="roundChip" hidden></span>
     <span class="chip" id="clock" hidden></span>
-    <span class="chip">牌堆<b id="deckN">0</b></span>
+    <span class="chip deckchip">牌堆<b id="deckN">0</b></span>
     <span class="chip" id="multChip">倍数<b id="multN">×1</b></span>
-    <button class="linkbtn" id="leaveBtn" type="button" data-act="leave" hidden>离开房间</button>
+    <button class="linkbtn" id="leaveBtn" type="button" data-act="leave" hidden>离开<span class="pc">房间</span></button>
     <button class="linkbtn" id="musicBtn" type="button" aria-pressed="true">音乐 开</button>
     <button class="linkbtn" id="soundBtn" type="button">声音 全开</button>
     <button class="linkbtn" id="rulesBtn" type="button">规则</button>
@@ -354,6 +375,7 @@ body.shake .table,body.shake .me{animation:fxshake .5s linear}
       <li>炸弹：三张相同是炸弹，四张相同更大，一对王最大。炸弹可以压任何牌，大炸弹压小炸弹。每出一个炸弹，本局倍数翻倍。</li>
       <li>一圈没人要，最后出牌的人从牌堆摸一张，再接着随便出。牌堆摸完就不再摸。</li>
       <li>点“提示”会帮你选好能出的牌；压不住时点“提示”直接不要。</li>
+      <li>一场固定 15 盘，顶栏显示还剩几盘；打完按总分排出状元、榜眼、探花。</li>
       <li>测试中遇到问题，点右上角“报错”告诉我们。</li>
       <li>结算：输家按剩余张数 × 倍数付分给赢家；一张牌都没出过的输家再翻倍。赢家下一局坐庄。</li>
       <li>每手 30 秒。超时或掉线由电脑托管代打；掉线的人重新打开链接会自动接回，超时托管的人点“取消托管”。</li>
@@ -1270,7 +1292,7 @@ function msgNow(){
   if (!V || V.phase === 'lobby' || !V.msg) return {text:''};
   const g = V.msg, m = V.you;
   let t = '';
-  if (g.k === 'deal') t = nm(g.i) + ' 坐庄，先出牌';
+  if (g.k === 'deal') t = (V.round ? roundText() + '。' : '') + nm(g.i) + ' 坐庄，先出牌';
   else if (g.k === 'play') t = nm(g.i) + ' 出了 ' + comboName(g.combo) + (g.combo.type === 'bomb' ? '，倍数翻倍' : '');
   else if (g.k === 'pass') t = nm(g.i) + ' 不要';
   else if (g.k === 'draw') t = '没人要，' + (g.c ? nm(g.i) + ' 摸一张' + (g.c !== true ? '（' + cardText(g.c) + '）' : '') + '，接着出' : '牌堆已空，' + nm(g.i) + ' 接着出');
@@ -1282,6 +1304,7 @@ function myTurn(){ return !!V && V.phase === 'play' && V.you >= 0 && V.turn === 
 function render(){
   $('home').classList.toggle('on', !room);
   $('roomChip').hidden = !room; $('roomN').textContent = room || '';
+  renderRound();
   $('leaveBtn').hidden = !room;
   for (let p = 0; p < 4; p++){ $('z' + p).classList.remove('win'); if (p) $('seat' + p).hidden = true; }
   const hand = $('hand');
@@ -1361,7 +1384,7 @@ function tickClock(){
   c.hidden = !on;
   if (!on) return;
   const sec = Math.max(0, Math.ceil((leftAt - Date.now()) / 1000));
-  c.innerHTML = esc(nm(V.turn)) + ' 出牌<b>' + sec + ' 秒</b>';
+  c.innerHTML = esc(nm(V.turn)) + '<span class="pc"> 出牌</span><b>' + sec + ' 秒</b>';
   c.classList.toggle('hot', sec <= 5);
   if (myTurn() && sec > 0 && sec <= 5) FX.tick(V.v + ':' + sec);
 }
@@ -1385,12 +1408,52 @@ function renderLobby(){
   h += statusLine();
   if (V.host) h += '<label class="check" for="fillIn"><input type="checkbox" id="fillIn"' + (V.fill ? ' checked' : '') + '>空位用电脑补齐到 4 人</label>';
   else h += '<p class="note">' + (V.fill ? '空位会由电脑补齐到 4 人。' : '不加电脑，只有在座的人打。') + '等房主开局。</p>';
+  const going = inMatch();
+  h += '<p class="note">一场固定 ' + V.matchLen + ' 盘，打完按总分排名。</p>';
+  if (going) h += '<p class="note">这一场已经打了 ' + V.round + (V.matchLen ? ' / ' + V.matchLen : '') + ' 盘，开局会接着打，分数继续累计。'
+    + (V.host ? '<button class="tiny" type="button" data-act="newmatch">重新开一场</button>' : '') + '</p>';
   const can = V.host && (V.fill || no >= 2) && !busy;
+  const startLabel = going ? '接着打第 ' + (V.round + 1) + ' 盘' : '开始发牌';
   h += '<div class="row"><button class="btn" type="button" data-act="leave">离开房间</button>'
-    + (V.host ? '<button class="btn go" type="button" data-act="start"' + (can ? '' : ' disabled') + '>开始发牌</button>' : '') + '</div>';
+    + (V.host ? '<button class="btn go" type="button" data-act="start"' + (can ? '' : ' disabled') + '>' + startLabel + '</button>' : '') + '</div>';
   if (V.host && !can) h += '<p class="warn">至少要两个人，或者勾上电脑补位。</p>';
   h += '<p class="note">遇到问题？<button class="tiny" type="button" data-act="report">报错反馈</button></p>';
   $('lobbySheet').innerHTML = h;
+}
+/* ---------- 一场 15 盘：剩余盘数 ---------- */
+const inMatch = () => V && V.round > 0 && !V.matchDone;
+function roundText(){
+  if (!V || !V.round) return '';
+  if (V.matchDone) return '本场已结束';
+  if (!V.matchLen) return '第 ' + V.round + ' 盘';
+  const left = V.matchLen - V.round;
+  return left > 0 ? '第 ' + V.round + ' 盘，还剩 ' + left + ' 盘' : '最后一盘';
+}
+function renderRound(){
+  const c = $('roundChip');
+  if (!V || !V.round){ c.hidden = true; return; }
+  c.hidden = false;
+  const left = V.matchLen ? V.matchLen - V.round : -1;
+  c.classList.toggle('hot', !V.matchDone && left === 0);
+  c.innerHTML = V.matchDone ? '本场<b>结束</b>'
+    : !V.matchLen ? '第<b>' + V.round + '</b>盘'
+    : left === 0 ? '<b>最后一盘</b>'
+    : '剩<b>' + left + '</b>盘';
+  c.title = roundText();
+}
+const RANK_TITLE = ['状元', '榜眼', '探花'];
+function rankingHTML(){
+  const list = V.players.map((p, i) => ({p, i})).sort((a, b) => b.p.score - a.p.score);
+  let h = '<table class="rank"><thead><tr><th>名次</th><th>玩家</th><th>总分</th></tr></thead><tbody>';
+  let place = 0, prev = null;
+  list.forEach(({p, i}, k) => {
+    if (p.score !== prev) place = k;
+    prev = p.score;
+    const t = RANK_TITLE[place] || '第' + '一二三四五六七八'[place] + '名';
+    h += '<tr' + (i === V.you ? ' class="myrow"' : '') + '><td><span class="title' + (place === 0 ? ' top' : '') + '">' + t + '</span></td>'
+      + '<td><span class="who2"><span class="rav">' + AVATAR.svg(p.av) + '</span>' + esc(nm(i)) + '</span></td><td class="' + (p.score >= 0 ? 'plus' : 'minus') + '">' + (p.score > 0 ? '+' : '') + p.score + '</td></tr>';
+  });
+  return h + '</tbody></table>';
 }
 /* 弹窗挡住了底部消息，所以连接状态和操作错误在弹窗里再显示一次 */
 function statusLine(){
@@ -1400,17 +1463,27 @@ function statusLine(){
 function renderResult(){
   const o = V.over, w = o.winner, m = V.you;
   let h = '<h2>' + (w === m ? '你<em>赢了</em>' : esc(nm(w)) + ' 先出完，<em>' + (m >= 0 ? '你干瞪眼' : '其余干瞪眼') + '</em>') + '</h2>';
-  h += '<table><thead><tr><th>玩家</th><th>剩牌</th><th>本局</th><th>总分</th></tr></thead><tbody>';
+  /* 结算时醒目地显示打到第几盘、还剩几盘 */
+  if (!V.matchDone && V.matchLen){
+    const left = V.matchLen - V.round;
+    h += '<div class="progress"><div class="ptop"><span>第 <b>' + V.round + '</b> / ' + V.matchLen + ' 盘</span>'
+      + '<span class="pleft">还剩 <b>' + left + '</b> 盘' + (left === 1 ? '<em>下一盘是最后一盘</em>' : '') + '</span></div>'
+      + '<div class="pbar" aria-hidden="true">' + Array.from({length:V.matchLen}, (_, k) => '<i' + (k < V.round ? ' class="done"' : '') + '></i>').join('') + '</div></div>';
+  }
+  h += '<table><thead><tr><th>玩家</th><th>剩牌</th><th>本盘</th><th>总分</th></tr></thead><tbody>';
   V.players.forEach((p, i) => {
     const r = o.rows[i], g = r.gain;
     const left = i === w ? '出完' : '<div class="left">' + o.hands[i].map(c =>
       '<span class="mini' + ((c.s === '♥' || c.s === '♦' || c.r === 17) ? ' red' : '') + '">' + cardText(c) + '</span>').join('') + '</div>';
     h += '<tr><td>' + esc(nm(i)) + (r.shut ? '（一张没出，翻倍）' : '') + '</td><td>' + left + '</td><td class="' + (g >= 0 ? 'plus' : 'minus') + '">' + (g > 0 ? '+' : '') + g + '</td><td>' + p.score + '</td></tr>';
   });
-  h += '</tbody></table><p class="note">本局倍数 ×' + V.mult + '。</p>';
+  h += '</tbody></table><p class="note">本盘倍数 ×' + V.mult + '。</p>';
+  if (V.matchDone) h = '<h2>本场<em>结束</em></h2><p class="note">' + V.matchLen + ' 盘打完，按总分排名。最后一盘' + esc(w === m ? '你' : nm(w)) + '先出完。</p>' + rankingHTML()
+    + '<details class="lastround"><summary>最后一盘的详细结算</summary>' + h.replace(/<h2>.*?<\/h2>/, '') + '</details>';
   h += statusLine();
-  if (V.host) h += '<div class="row"><button class="btn" type="button" data-act="lobby"' + (busy ? ' disabled' : '') + '>回房间</button><button class="btn go" type="button" data-act="start"' + (busy ? ' disabled' : '') + '>再来一局</button></div>';
-  else h += '<p class="note">等房主开下一局。</p>';
+  const next = V.matchDone ? '再开一场' : '下一盘';
+  if (V.host) h += '<div class="row"><button class="btn" type="button" data-act="lobby"' + (busy ? ' disabled' : '') + '>回房间</button><button class="btn go" type="button" data-act="start"' + (busy ? ' disabled' : '') + '>' + next + '</button></div>';
+  else h += '<p class="note">' + (V.matchDone ? '等房主再开一场。' : '等房主开下一盘。') + '</p>';
   h += '<p class="note">遇到问题？<button class="tiny" type="button" data-act="report">报错反馈</button></p>';
   $('resultSheet').innerHTML = h;
 }

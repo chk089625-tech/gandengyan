@@ -17,7 +17,9 @@ const VOICE_FILE = /^[A-Za-z0-9]+(-\d+)?\.(mp3|m4a|wav)$/;
 /* GDY_TIME_SCALE 只给自动测试用，把所有计时按比例缩短；线上不设置，等于 1 */
 const SCALE = Number(process.env.GDY_TIME_SCALE) > 0 ? Number(process.env.GDY_TIME_SCALE) : 1;
 const TURN_MS = 30000 * SCALE, OFFLINE_PLAY_MS = 5000 * SCALE, OFFLINE_LOBBY_MS = 120000 * SCALE, ROOM_IDLE_MS = 30 * 60000 * SCALE, EMPTY_ROOM_MS = 2 * 60000 * SCALE;
-const HOST_GRACE_MS = 20000 * SCALE;            // 房主掉线超过 20 秒，房主身份转给在线的人
+const HOST_GRACE_MS = 20000 * SCALE;
+/* 一场固定 15 盘；GDY_MATCH_LEN 只给自动测试用 */
+const MATCH_LEN = Number(process.env.GDY_MATCH_LEN) > 0 ? Number(process.env.GDY_MATCH_LEN) : 15;            // 房主掉线超过 20 秒，房主身份转给在线的人
 const MAX_MEMBERS = 8, MAX_ROOMS = 500;
 const CREATE_PER_IP = 6, CREATE_WINDOW_MS = 10 * 60000, ROOMS_PER_HOST = 3;
 const CONNS_PER_PLAYER = 3, CONNS_PER_IP = 60;
@@ -49,7 +51,7 @@ function ensureHost(r) {
 function newRoom() {
   if (rooms.size >= MAX_ROOMS) throw new Oops('房间太多了，稍后再试');
   let code; do { code = String(Math.floor(1000 + Math.random() * 9000)); } while (rooms.has(code));
-  const r = { code, v: 0, seq: 0, members: [], host: null, nextDealer: null, fill: true, scores: {}, conns: new Map(), offTimers: new Map(), offSince: new Map(), timer: null, deadline: 0, touched: Date.now() };
+  const r = { code, v: 0, seq: 0, members: [], host: null, nextDealer: null, fill: true, matchLen: MATCH_LEN, round: 0, matchDone: false, scores: {}, conns: new Map(), offTimers: new Map(), offSince: new Map(), timer: null, deadline: 0, touched: Date.now() };
   resetTable(r);
   rooms.set(code, r);
   return r;
@@ -125,6 +127,7 @@ function finish(r, w) {
   rows.forEach((x, i) => { const k = r.players[i].key; r.scores[k] = (r.scores[k] || 0) + x.gain; });
   r.over = { winner: w, rows };
   r.nextDealer = r.players[w].key;
+  if (r.matchLen && r.round >= r.matchLen) r.matchDone = true;
   r.phase = 'over';
   ensureHost(r);
   sync(r);
@@ -154,6 +157,7 @@ function view(r, pid) {
   if (msg && msg.k === 'draw' && msg.i !== you) msg = { k: 'draw', i: msg.i, c: msg.c ? true : null, n: msg.n };
   return {
     code: r.code, v: r.v, phase: r.phase, you, host: r.host === pid, fill: r.fill,
+    matchLen: r.matchLen, round: r.round, matchDone: r.matchDone,
     members: seatQueue(r).map((m, i) => ({ name: m.name, av: m.av, online: online(r, m.pid), you: m.pid === pid, host: m.pid === r.host,
       seat: i < 4 && present(r, m.pid, HOST_GRACE_MS) })),
     players: r.players.map((p, i) => ({ name: p.name, av: p.av, ai: p.ai, auto: !!p.auto, count: r.hands[i].length, score: r.scores[p.key] || 0 })),
@@ -186,12 +190,19 @@ function act(r, pid, b) {
       const ps = buildPlayers(r);
       if (ps.length < 2) throw new Oops('至少要两个人，或者勾上电脑补位');
       r.players = ps;
+      /* 一场打 matchLen 盘：还没开场或上一场打完了，就新开一场、分数清零；否则接着打下一盘 */
+      if (r.round === 0 || r.matchDone) { r.scores = {}; r.round = 1; r.matchDone = false; r.nextDealer = null; }
+      else r.round++;
       /* 上局赢家坐庄；赢家已经离桌就随机 */
       const w = ps.findIndex(p => p.key === r.nextDealer);
       return deal(r, w >= 0 ? w : Math.floor(Math.random() * ps.length));
     }
     case 'lobby':
       if (!host || r.phase !== 'over') throw new Oops('只有房主能在一局结束后回房间');
+      resetTable(r); return sync(r);
+    case 'newmatch':
+      if (!host || r.phase === 'play') throw new Oops('只有房主能在开局前重新开一场');
+      r.round = 0; r.matchDone = false; r.scores = {}; r.nextDealer = null;
       resetTable(r); return sync(r);
     case 'play': {
       if (r.phase !== 'play' || you !== r.turn || r.trickEnd) throw new Oops('还没轮到你');
