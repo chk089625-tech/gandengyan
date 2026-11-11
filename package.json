@@ -1,0 +1,8 @@
+{
+  "name": "gandengyan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "干瞪眼联机测试版",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

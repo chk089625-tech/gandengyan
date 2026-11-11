@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>干瞪眼扑克</title>
+<style>
+/* 布局：一屏牌桌。上方信息条，中间三家对手围着出牌区和牌堆，下方是自己的手牌和按钮。蓝印花布桌面，朱红印章是唯一的重音。 */
+:root{
+  color-scheme: dark;
+  --cloth:#1b2a4e;
+  --cloth-deep:#131e3a;
+  --paper:#f5eedc;
+  --ink:#1c1c26;
+  --seal:#d4412c;
+  --gold:#e6bd63;
+  --mute:#9fb0d6;
+  --line:rgba(245,238,220,.18);
+  --display:"STKaiti","KaiTi","Kaiti SC","Songti SC","SimSun",serif;
+  --body:-apple-system,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --cw:clamp(46px,9.2vw,78px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--body);color:var(--paper);background:var(--cloth-deep);
+  background-image:
+    radial-gradient(circle at 12px 12px,rgba(245,238,220,.07) 2px,transparent 2.5px),
+    radial-gradient(circle at 36px 36px,rgba(245,238,220,.05) 4px,transparent 4.5px),
+    radial-gradient(ellipse at 50% 45%,var(--cloth) 0%,var(--cloth-deep) 78%);
+  background-size:48px 48px,48px 48px,100% 100%;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+/* 顶栏 */
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px;flex-wrap:wrap}
+.seal{font-family:var(--display);background:var(--seal);color:var(--paper);font-size:22px;line-height:1;padding:7px 10px 8px;border-radius:5px;letter-spacing:3px;box-shadow:inset 0 0 0 2px rgba(245,238,220,.35)}
+.chips{display:flex;gap:8px;margin-left:auto;align-items:center;flex-wrap:wrap}
+.chip{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip b{color:var(--gold);font-weight:700;margin-left:4px}
+.chip.hot b{color:var(--seal)}
+.linkbtn{border:1px solid var(--line);border-radius:999px;padding:4px 14px;font-size:13px}
+.linkbtn:hover{border-color:var(--gold);color:var(--gold)}
+
+/* 牌桌 */
+.table{flex:1;min-height:0;display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr;gap:6px 8px;padding:0 16px;
+  grid-template-areas:". top ." "left center right"}
+.seat{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:12px;border:1px solid transparent}
+.seat.turn{border-color:var(--seal);background:rgba(212,65,44,.12)}
+#seat2{grid-area:top;justify-self:center}
+#seat3{grid-area:left;flex-direction:column;align-self:center}
+#seat1{grid-area:right;flex-direction:column;align-self:center}
+.who{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:13px}
+.who .nm{font-family:var(--display);font-size:18px}
+.who .sc{color:var(--mute);font-variant-numeric:tabular-nums}
+.back{width:42px;height:58px;border-radius:6px;display:grid;place-items:center;font-family:var(--display);font-size:22px;color:var(--paper);
+  background:repeating-linear-gradient(45deg,#8e2a1c 0 5px,#a93523 5px 10px);box-shadow:0 0 0 2px var(--paper),0 3px 8px rgba(0,0,0,.4);font-variant-numeric:tabular-nums}
+.center{grid-area:center;min-height:0;display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:1fr auto 1fr;gap:6px;
+  grid-template-areas:". z2 ." "z3 deck z1" ". z0 ."}
+.zone{display:flex;align-items:center;justify-content:center;min-width:0;min-height:calc(var(--cw)*.62*1.4)}
+#z2{grid-area:z2}#z3{grid-area:z3}#z1{grid-area:z1}#z0{grid-area:z0}
+.zone .cards{display:flex;flex-wrap:wrap;justify-content:center;row-gap:4px;padding-left:calc(var(--cw)*.62*.5)}
+.zone .card{--cw2:calc(var(--cw)*.62);width:var(--cw2);height:calc(var(--cw2)*1.4);margin-left:calc(var(--cw2)*-.5);font-size:calc(var(--cw2)*.36)}
+.zone.win .card{box-shadow:0 0 0 2px var(--gold),0 3px 8px rgba(0,0,0,.4)}
+.passed{font-family:var(--display);font-size:20px;color:var(--mute);border:1px dashed var(--line);border-radius:8px;padding:4px 12px;transform:rotate(-4deg)}
+.deck{grid-area:deck;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--mute)}
+.deck .back{width:50px;height:70px;box-shadow:0 0 0 2px var(--paper),3px 3px 0 0 #6e2015,5px 5px 0 0 #51170f,0 8px 14px rgba(0,0,0,.45)}
+.deck .back.empty{background:none;box-shadow:inset 0 0 0 2px var(--line);color:var(--mute)}
+
+/* 牌 */
+.card{position:relative;flex:none;width:var(--cw);height:calc(var(--cw)*1.4);border-radius:calc(var(--cw)*.1);background:var(--paper);color:var(--ink);
+  font-family:var(--display);font-size:calc(var(--cw)*.36);line-height:1;box-shadow:0 0 0 1px rgba(28,28,38,.35),0 3px 8px rgba(0,0,0,.35);
+  display:block;text-align:left;transition:transform .12s ease}
+.card.red{color:var(--seal)}
+.card .r,.card .s{position:absolute;left:.22em;display:block;width:1.1em;text-align:center}
+.card .r{top:.2em}
+.card .s{top:1.2em;font-size:.85em;left:.26em}
+.card .big{position:absolute;right:.12em;bottom:.08em;font-size:1.7em;opacity:.16}
+.card.jk .r,.card.jk .s{font-size:.8em}
+.card.jk .s{top:1.25em}
+
+/* 自己 */
+.me{padding:6px 16px 14px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);background:rgba(10,16,34,.35)}
+.me.turn{border-top-color:var(--seal)}
+.merow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.merow .nm{font-family:var(--display);font-size:18px}
+.merow .sc{color:var(--mute);font-size:13px;font-variant-numeric:tabular-nums}
+.msg{flex:1;min-width:140px;font-size:14px;color:var(--gold);text-align:center;min-height:1.4em}
+.msg.err{color:#ff9c8c}
+.hand{display:flex;justify-content:center;padding-top:20px;min-height:calc(var(--cw)*1.4 + 20px)}
+.hand .card.sel{transform:translateY(-18px);box-shadow:0 0 0 2px var(--gold),0 8px 14px rgba(0,0,0,.4)}
+.hand .card.fresh{box-shadow:0 0 0 2px var(--seal),0 3px 8px rgba(0,0,0,.35)}
+.hand .card:hover{transform:translateY(-6px)}
+.hand .card.sel:hover{transform:translateY(-18px)}
+.acts{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.btn{min-width:92px;padding:10px 18px;border-radius:10px;font-weight:700;font-size:15px;border:1px solid var(--line);background:rgba(245,238,220,.06)}
+.btn:hover:not(:disabled){border-color:var(--gold)}
+.btn.go{background:var(--seal);border-color:var(--seal);color:var(--paper)}
+.btn.go:hover:not(:disabled){filter:brightness(1.1)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+
+/* 弹层 */
+.veil{position:fixed;inset:0;background:rgba(8,12,26,.72);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+.veil.on{display:flex}
+.sheet{background:var(--paper);color:var(--ink);border-radius:14px;max-width:560px;width:100%;max-height:100%;overflow:auto;padding:22px 22px 18px;display:flex;flex-direction:column;gap:14px}
+.sheet h2{font-family:var(--display);font-size:28px;font-weight:400;text-wrap:balance}
+.sheet h2 em{font-style:normal;color:var(--seal)}
+.sheet ul{padding-left:1.2em;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.6}
+.sheet table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.sheet th,.sheet td{padding:7px 6px;text-align:right;border-bottom:1px solid rgba(28,28,38,.14)}
+.sheet th:first-child,.sheet td:first-child{text-align:left}
+.sheet th{font-weight:500;color:#6a6658;font-size:12px}
+.sheet td.plus{color:#1f7a44;font-weight:700}
+.sheet td.minus{color:var(--seal);font-weight:700}
+.sheet .left{display:flex;flex-wrap:wrap;gap:3px}
+.sheet .mini{font-family:var(--display);border:1px solid rgba(28,28,38,.3);border-radius:4px;padding:1px 4px;font-size:13px;background:#fff}
+.sheet .mini.red{color:var(--seal)}
+.sheet .note{font-size:12px;color:#6a6658}
+.sheet .btn{align-self:flex-end;color:var(--ink);border-color:rgba(28,28,38,.3)}
+.sheet .btn.go{color:var(--paper)}
+
+.tiny{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--mute);white-space:nowrap}
+.tiny:hover{border-color:var(--gold);color:var(--gold)}
+.tag{font-family:var(--body);font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:middle}
+.watch{align-self:center;color:var(--mute);font-size:14px;text-align:center}
+.seatlist{display:flex;flex-direction:column;gap:8px}
+.seatrow{display:flex;align-items:center;gap:10px;border:1px solid rgba(28,28,38,.18);border-radius:10px;padding:10px 12px;font-size:15px}
+.seatrow .no{font-family:var(--display);color:#6a6658;width:3.2em;flex:none}
+.seatrow .occ{flex:1;min-width:0;overflow-wrap:anywhere}
+.seatrow .occ.empty{color:#8a8674}
+.seatrow.mine{border-color:var(--seal)}
+.sheet .tiny{color:var(--ink);border-color:rgba(28,28,38,.3);font-size:13px;padding:4px 12px}
+.sheet .tiny:hover{color:var(--seal);border-color:var(--seal)}
+.sheet .warn{font-size:13px;color:var(--seal)}
+.sheet .row{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.sheet .row .btn{align-self:auto}
+[hidden]{display:none !important}
+
+/* 特效：报警与炸弹 */
+.alarm{display:inline-block;font-family:var(--body);font-size:11px;font-weight:700;color:#fff;background:var(--seal);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle;animation:alarmblink .7s steps(2,jump-none) infinite}
+.alarm[hidden]{display:none}
+.seat.warn .back{box-shadow:0 0 0 2px var(--gold),0 0 0 5px var(--seal),0 3px 8px rgba(0,0,0,.4)}
+@keyframes alarmblink{50%{background:var(--gold);color:var(--ink)}}
+#fx{position:fixed;inset:0;pointer-events:none;z-index:20;overflow:hidden}
+#fx .fxitem{position:absolute;inset:0;display:grid;place-items:center}
+#fx .flash{position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(255,224,130,.95),rgba(212,65,44,.8) 34%,rgba(212,65,44,0) 72%);animation:fxflash .8s ease-out forwards}
+#fx .boom{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;animation:fxboom 1.6s cubic-bezier(.2,1.5,.4,1) forwards}
+#fx .boom b{font-family:var(--display);font-weight:400;font-size:clamp(76px,21vw,200px);line-height:1;color:var(--gold);text-shadow:0 5px 0 var(--seal),0 0 46px rgba(212,65,44,.95);letter-spacing:.06em}
+#fx .boom span{font-size:16px;color:var(--paper);background:rgba(10,16,34,.82);border-radius:999px;padding:5px 16px}
+#fx .spark{position:absolute;left:50%;top:50%;width:11px;height:11px;border-radius:2px;background:var(--gold);animation:fxspark .95s ease-out forwards}
+#fx .spark:nth-child(odd){background:var(--seal)}
+#fx .siren{position:absolute;top:13%;display:flex;align-items:center;gap:10px;background:var(--seal);color:var(--paper);font-size:18px;font-weight:700;padding:10px 18px;border-radius:10px;box-shadow:0 0 0 3px var(--paper),0 10px 24px rgba(0,0,0,.5);animation:fxsiren 2.3s ease forwards}
+#fx .siren b{background:var(--paper);color:var(--seal);border-radius:4px;padding:1px 8px;animation:alarmblink .5s steps(2,jump-none) infinite}
+body.shake .table,body.shake .me{animation:fxshake .5s linear}
+@keyframes fxflash{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
+@keyframes fxboom{0%{transform:scale(.2) rotate(-14deg);opacity:0}22%{transform:scale(1.18) rotate(-6deg);opacity:1}36%{transform:scale(1) rotate(-6deg)}82%{transform:scale(1) rotate(-6deg);opacity:1}100%{transform:scale(1.08) rotate(-6deg);opacity:0}}
+@keyframes fxspark{0%{transform:translate(-50%,-50%) scale(1);opacity:1}100%{transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(.2) rotate(240deg);opacity:0}}
+@keyframes fxshake{0%,100%{transform:translate(0,0)}15%{transform:translate(-8px,5px)}30%{transform:translate(7px,-6px)}45%{transform:translate(-6px,-4px)}60%{transform:translate(5px,5px)}80%{transform:translate(-3px,2px)}}
+@keyframes fxsiren{0%{transform:translateY(-220%)}10%,86%{transform:translateY(0)}100%{transform:translateY(-220%)}}
+@media (prefers-reduced-motion:reduce){
+  .alarm,#fx .siren b{animation:none}
+  #fx .flash{display:none}
+  #fx .boom{animation:fxfade 1.6s linear forwards}
+  #fx .siren{animation:fxfade 2.3s linear forwards}
+}
+@keyframes fxfade{0%,85%{opacity:1}100%{opacity:0}}
+
+@media (max-width:520px){
+  .table{padding:0 8px;gap:4px}
+  .seat{padding:4px 6px;gap:6px}
+  .back{width:34px;height:48px;font-size:18px}
+  .who .nm{font-size:15px}
+  .bar{padding:8px 12px;gap:8px}
+  .seal{font-size:18px}
+  .btn{min-width:80px;padding:9px 12px}
+}
+@media (prefers-reduced-motion:reduce){.card{transition:none}}
+.field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#6a6658}
+.field input{font:inherit;font-size:17px;color:var(--ink);background:#fff;border:1px solid rgba(28,28,38,.3);border-radius:10px;padding:10px 12px;width:100%}
+.field input:focus{outline:2px solid var(--seal);outline-offset:1px}
+.or{display:flex;align-items:center;gap:10px;color:#8a8674;font-size:12px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:rgba(28,28,38,.15)}
+.joinrow{display:flex;gap:10px;align-items:flex-end}
+.joinrow .field{flex:1}
+.sheet .btn.wide{align-self:stretch}
+.bigcode{font-family:var(--display);font-size:44px;letter-spacing:8px;color:var(--seal);line-height:1}
+.linkbox{font-size:13px;word-break:break-all;background:#fff;border:1px dashed rgba(28,28,38,.3);border-radius:8px;padding:8px 10px;user-select:all;-webkit-user-select:all}
+.check{display:flex;align-items:center;gap:8px;font-size:14px}
+.check input{width:18px;height:18px;accent-color:var(--seal)}
+.seatrow .st{font-size:12px;color:#8a8674;white-space:nowrap}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="seal">干瞪眼</div>
+  <div class="chips">
+    <span class="chip" id="roomChip" hidden>房间<b id="roomN"></b></span>
+    <span class="chip" id="clock" hidden></span>
+    <span class="chip">牌堆<b id="deckN">0</b></span>
+    <span class="chip" id="multChip">倍数<b id="multN">×1</b></span>
+    <button class="linkbtn" id="leaveBtn" type="button" data-act="leave" hidden>离开房间</button>
+    <button class="linkbtn" id="soundBtn" type="button">音效 开</button>
+    <button class="linkbtn" id="rulesBtn" type="button">规则</button>
+  </div>
+</header>
+
+<main class="table">
+  <div class="seat" id="seat2" hidden></div>
+  <div class="seat" id="seat3" hidden></div>
+  <div class="seat" id="seat1" hidden></div>
+  <div class="center">
+    <div class="zone" id="z2"></div>
+    <div class="zone" id="z3"></div>
+    <div class="deck"><div class="back" id="deckBack"></div><span>牌堆</span></div>
+    <div class="zone" id="z1"></div>
+    <div class="zone" id="z0"></div>
+  </div>
+</main>
+
+<section class="me" id="me">
+  <div class="merow">
+    <span class="nm" id="myNm">你</span><span class="sc" id="mySc"></span><span class="alarm" id="myAlarm" hidden>报警</span>
+    <span class="msg" id="msg" role="status"></span>
+  </div>
+  <div class="hand" id="hand"></div>
+  <div class="acts">
+    <button class="btn" id="unautoBtn" type="button" data-act="unauto" hidden>取消托管</button>
+    <button class="btn" id="hintBtn" type="button" disabled>提示</button>
+    <button class="btn" id="passBtn" type="button" disabled>不要</button>
+    <button class="btn go" id="playBtn" type="button" disabled>出牌</button>
+  </div>
+</section>
+
+<div class="veil on" id="home">
+  <form class="sheet" id="homeForm">
+    <h2>干瞪眼<em> 联机测试版</em></h2>
+    <label class="field" for="nameIn">你的昵称
+      <input id="nameIn" maxlength="12" autocomplete="nickname" placeholder="朋友们看到的名字">
+    </label>
+    <button class="btn go wide" id="createBtn" type="button">创建房间</button>
+    <div class="or">或者加入朋友的房间</div>
+    <div class="joinrow">
+      <label class="field" for="codeIn">房间号
+        <input id="codeIn" inputmode="numeric" maxlength="4" placeholder="4 位数字">
+      </label>
+      <button class="btn" id="joinBtn" type="submit">加入</button>
+    </div>
+    <p class="warn" id="homeErr" hidden></p>
+    <p class="note">不用注册。这台设备会记住你，掉线后重新打开链接就能回到原来的座位。</p>
+  </form>
+</div>
+
+<div class="veil" id="lobby"><div class="sheet" id="lobbySheet"></div></div>
+<div class="veil" id="result"><div class="sheet" id="resultSheet"></div></div>
+
+<div class="veil" id="rules">
+  <div class="sheet">
+    <h2>干瞪眼<em>怎么玩</em></h2>
+    <ul>
+      <li>一副牌 54 张，2 到 4 人。庄家 6 张，其余每人 5 张，庄家先出。谁先出完谁赢。</li>
+      <li>大小：3 最小，往上到 K、A，2 最大。大小王是百搭，可以当任意牌配进对子、顺子、连对和炸弹，但不能单出（手里只剩一张王时除外）。</li>
+      <li>牌型：单张、对子、顺子（3 张起，不含 2）、连对（2 对起，不含 2）、炸弹。</li>
+      <li>压牌只能大一级：出 5 只能用 6 压，出 345 只能用 456 压。单张 2 可以压任何单张，对 2 可以压任何对子。压不了就只能干瞪眼。</li>
+      <li>炸弹：三张相同是炸弹，四张相同更大，一对王最大。炸弹可以压任何牌，大炸弹压小炸弹。每出一个炸弹，本局倍数翻倍。</li>
+      <li>一圈没人要，最后出牌的人从牌堆摸一张，再接着随便出。牌堆摸完就不再摸。</li>
+      <li>结算：输家按剩余张数 × 倍数付分给赢家；一张牌都没出过的输家再翻倍。赢家下一局坐庄。</li>
+      <li>每手 60 秒，超时或掉线会由电脑托管代打，回来后点取消托管。</li>
+    </ul>
+    <button class="btn go" id="rulesClose" type="button">知道了</button>
+  </div>
+</div>
+
+<script src="/logic.js"></script>
+<script>
+const {isJoker, rankLabel, interpret, resolve, comboName, rankPlays} = GDY;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+};
+let pid = store.get('gdy-pid');
+if (!pid || !/^[a-z0-9]{8,40}$/.test(pid)){
+  const a = new Uint8Array(12);
+  (window.crypto || window.msCrypto).getRandomValues(a);
+  pid = Array.from(a, b => b.toString(36).padStart(2, '0')).join('');
+  store.set('gdy-pid', pid);
+}
+let V = null, room = null, es = null, sel = new Set(), hintIdx = -1, localMsg = null, leftAt = 0, netDown = false;
+
+async function api(p, body){
+  let res, data = {};
+  try { res = await fetch(p, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.assign({pid}, body))}); }
+  catch(e){ throw new Error('网络不通，稍后再试'); }
+  try { data = await res.json(); } catch(e){}
+  if (!res.ok) throw new Error(data.error || '服务器没响应，稍后再试');
+  return data;
+}
+function say(text, err){ localMsg = {text, err:!!err}; }
+function act(type, extra){
+  return api('/api/act', Object.assign({room, type}, extra)).catch(e => { say(e.message, true); render(); });
+}
+function homeErr(t){ const el = $('homeErr'); el.textContent = t || ''; el.hidden = !t; }
+function myName(){ const n = $('nameIn').value.trim(); if (n) store.set('gdy-name', n); return n; }
+
+function enter(code){
+  room = code; V = null; FX.reset(); sel.clear(); localMsg = null; netDown = false;
+  try { history.replaceState(null, '', '?r=' + code); } catch(e){}
+  if (es) es.close();
+  es = new EventSource('/api/events?room=' + code + '&pid=' + pid + '&name=' + encodeURIComponent($('nameIn').value.trim()));
+  es.onmessage = e => {
+    netDown = false;
+    const prev = V; V = JSON.parse(e.data);
+    const mine = new Set(V.hand.map(c => c.id));
+    sel.forEach(id => { if (!mine.has(id)) sel.delete(id); });
+    if (!prev || prev.v !== V.v){ hintIdx = -1; if (!prev || prev.turn !== V.turn || prev.phase !== V.phase) localMsg = null; }
+    leftAt = V.left ? Date.now() + V.left * 1000 : 0;
+    render();
+  };
+  es.onerror = () => {
+    if (es.readyState === 2){ exitRoom('房间不存在或已经解散，重新创建一个吧。'); }
+    else { netDown = true; render(); }
+  };
+  render();
+}
+function exitRoom(note){
+  if (es){ es.close(); es = null; }
+  room = null; V = null; sel.clear();
+  try { history.replaceState(null, '', location.pathname); } catch(e){}
+  homeErr(note);
+  render();
+}
+async function create(){
+  if (!myName()){ homeErr('先填一个昵称。'); return $('nameIn').focus(); }
+  homeErr('');
+  try { const d = await api('/api/create', {name:$('nameIn').value.trim()}); enter(d.room); }
+  catch(e){ homeErr(e.message); }
+}
+async function joinRoom(){
+  if (!myName()){ homeErr('先填一个昵称。'); return $('nameIn').focus(); }
+  const code = $('codeIn').value.trim();
+  if (!/^\d{4}$/.test(code)){ homeErr('房间号是 4 位数字。'); return $('codeIn').focus(); }
+  homeErr('');
+  try { const d = await api('/api/join', {room:code, name:$('nameIn').value.trim()}); enter(d.room); }
+  catch(e){ homeErr(e.message); }
+}
+
+/* ---------- 特效与音效：剩 1 张报警、炸弹 ---------- */
+const ALARM = '<span class="alarm">报警</span>';
+const FX = (() => {
+  let init = false, last = null, ctx = null, sound = true;
+  try { sound = localStorage.getItem('gdy-sound') !== 'off'; } catch(e){}
+  const calm = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const layer = document.createElement('div'); layer.id = 'fx'; document.body.appendChild(layer);
+  const btn = document.getElementById('soundBtn');
+  const paint = () => { btn.textContent = '音效 ' + (sound ? '开' : '关'); };
+  const wake = () => {
+    try {
+      if (!ctx){ const AC = window.AudioContext || window.webkitAudioContext; if (AC) ctx = new AC(); }
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+    } catch(e){}
+  };
+  document.addEventListener('pointerdown', wake);
+  btn.onclick = () => {
+    sound = !sound;
+    try { localStorage.setItem('gdy-sound', sound ? 'on' : 'off'); } catch(e){}
+    paint(); wake(); beep(660, 0, .08);
+  };
+  paint();
+  function beep(freq, at, dur){
+    if (!sound || !ctx) return;
+    try {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + at;
+      o.type = 'square'; o.frequency.value = freq;
+      g.gain.setValueAtTime(.1, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + dur);
+    } catch(e){}
+  }
+  function boomSound(){
+    if (!sound || !ctx) return;
+    try {
+      const t = ctx.currentTime, len = Math.floor(ctx.sampleRate * .7), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 2);
+      const n = ctx.createBufferSource(); n.buffer = buf;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass';
+      f.frequency.setValueAtTime(1800, t); f.frequency.exponentialRampToValueAtTime(120, t + .6);
+      const g = ctx.createGain(); g.gain.value = .5;
+      n.connect(f); f.connect(g); g.connect(ctx.destination); n.start(t);
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(38, t + .5);
+      og.gain.setValueAtTime(.5, t); og.gain.exponentialRampToValueAtTime(.001, t + .6);
+      o.connect(og); og.connect(ctx.destination); o.start(t); o.stop(t + .6);
+    } catch(e){}
+  }
+  function add(html, ms){
+    const d = document.createElement('div'); d.className = 'fxitem'; d.innerHTML = html;
+    layer.appendChild(d); setTimeout(() => d.remove(), ms);
+    return d;
+  }
+  function bomb(label, sub){
+    let sparks = '';
+    if (!calm) for (let i = 0; i < 28; i++){
+      const a = Math.random()*6.283, r = 120 + Math.random()*340;
+      sparks += '<i class="spark" style="--dx:' + Math.round(Math.cos(a)*r) + 'px;--dy:' + Math.round(Math.sin(a)*r) + 'px;animation-delay:' + (Math.random()*.12).toFixed(2) + 's"></i>';
+    }
+    add('<div class="flash"></div>' + sparks + '<div class="boom"><b>' + label + '</b><span></span></div>', 1700).querySelector('.boom span').textContent = sub;
+    if (!calm){ document.body.classList.add('shake'); setTimeout(() => document.body.classList.remove('shake'), 520); }
+    boomSound();
+  }
+  function alarm(text){
+    add('<div class="siren"><b>报警</b><span></span></div>', 2300).querySelector('.siren span').textContent = text;
+    for (let k = 0; k < 3; k++){ beep(988, k*.26, .12); beep(740, k*.26 + .13, .12); }
+  }
+  return {
+    reset(){ init = false; last = null; },
+    /* n 是这手牌的序号：同一手只触发一次；刚进房间时看到的旧牌不触发 */
+    check(n, info){
+      if (!init){ init = true; last = n; return; }
+      if (n == null || n === last) return;
+      last = n;
+      if (info.bomb) bomb(info.king ? '王炸' : '炸弹', info.name + ' · 倍数 ×' + info.mult);
+      if (info.one) setTimeout(() => alarm(info.name + ' 只剩 1 张牌'), info.bomb ? 1300 : 0);
+    }
+  };
+})();
+
+/* ---------- 渲染 ---------- */
+function nm(i){ return i === V.you ? '你' : V.players[i].name; }
+function cardText(c){ return isJoker(c) ? rankLabel(c.r) : c.s + rankLabel(c.r); }
+function cardEl(c, tag){
+  const d = document.createElement(tag || 'div');
+  const red = c.s === '♥' || c.s === '♦' || c.r === 17;
+  d.className = 'card' + (red ? ' red' : '') + (isJoker(c) ? ' jk' : '');
+  d.innerHTML = isJoker(c)
+    ? '<span class="r">' + (c.r === 17 ? '大' : '小') + '</span><span class="s">王</span><span class="big">王</span>'
+    : '<span class="r">' + rankLabel(c.r) + '</span><span class="s">' + c.s + '</span><span class="big">' + c.s + '</span>';
+  d.setAttribute('aria-label', cardText(c));
+  return d;
+}
+function msgNow(){
+  if (netDown) return {text:'连接断了，正在重连…', err:true};
+  if (localMsg) return localMsg;
+  if (!V || V.phase === 'lobby' || !V.msg) return {text:''};
+  const g = V.msg, m = V.you;
+  let t = '';
+  if (g.k === 'deal') t = nm(g.i) + ' 坐庄，先出牌';
+  else if (g.k === 'play') t = nm(g.i) + ' 出了 ' + comboName(g.combo) + (g.combo.type === 'bomb' ? '，倍数翻倍' : '');
+  else if (g.k === 'pass') t = nm(g.i) + ' 不要';
+  else if (g.k === 'draw') t = '没人要，' + (g.c ? nm(g.i) + ' 摸一张' + (g.c !== true ? '（' + cardText(g.c) + '）' : '') + '，接着出' : '牌堆已空，' + nm(g.i) + ' 接着出');
+  if (m >= 0 && V.players[m].auto) t += '。你正在托管';
+  else if (m >= 0 && V.phase === 'play' && V.turn === m && !V.trickEnd && g.i !== m) t += '。轮到你' + (V.last ? '，压得住就出' : '出牌');
+  return {text:t};
+}
+function myTurn(){ return !!V && V.phase === 'play' && V.you >= 0 && V.turn === V.you && !V.trickEnd && !V.players[V.you].auto; }
+function render(){
+  $('home').classList.toggle('on', !room);
+  $('roomChip').hidden = !room; $('roomN').textContent = room || '';
+  $('leaveBtn').hidden = !room;
+  for (let p = 0; p < 4; p++){ const z = $('z' + p); z.innerHTML = ''; z.classList.remove('win'); if (p) $('seat' + p).hidden = true; }
+  const hand = $('hand'); hand.innerHTML = '';
+  const mg = msgNow(), el = $('msg'); el.textContent = mg.text; el.classList.toggle('err', !!mg.err);
+  if (!V){
+    $('deckN').textContent = 0; $('multN').textContent = '×1'; $('deckBack').textContent = '';
+    $('lobby').classList.remove('on'); $('result').classList.remove('on');
+    $('myNm').textContent = '你'; $('mySc').textContent = '';
+    ['playBtn','passBtn','hintBtn'].forEach(id => $(id).disabled = true);
+    $('unautoBtn').hidden = true; $('myAlarm').hidden = true; tickClock();
+    return;
+  }
+  const n = V.players.length, you = V.you, base = you >= 0 ? you : 0, playing = V.phase !== 'lobby';
+  const slots = n === 2 ? [0,2] : n === 3 ? [0,1,3] : [0,1,2,3];
+  $('deckN').textContent = V.deckN;
+  $('multN').textContent = '×' + V.mult;
+  $('multChip').classList.toggle('hot', V.mult > 1);
+  const db = $('deckBack'); db.textContent = playing ? (V.deckN || '空') : ''; db.classList.toggle('empty', playing && !V.deckN);
+
+  for (let i = 0; i < n; i++){
+    const p = slots[(i - base + n) % n], z = $('z' + p), sh = V.show[i];
+    z.classList.toggle('win', !!V.last && V.last.by === i);
+    if (sh === 'pass') z.innerHTML = '<span class="passed">不要</span>';
+    else if (sh){
+      const box = document.createElement('div'); box.className = 'cards';
+      sh.forEach(c => box.appendChild(cardEl(c)));
+      z.appendChild(box);
+    }
+    if (p === 0) continue;
+    const seat = $('seat' + p), pl = V.players[i];
+    seat.hidden = false;
+    const one = V.phase === 'play' && pl.count === 1;
+    seat.classList.toggle('warn', one);
+    seat.classList.toggle('turn', V.phase === 'play' && V.turn === i && !V.trickEnd);
+    seat.innerHTML = '<div class="back" title="剩余手牌">' + pl.count + '</div>'
+      + '<div class="who"><span class="nm">' + esc(nm(i)) + (V.dealer === i ? ' · 庄' : '')
+      + (pl.ai ? '<span class="tag">电脑</span>' : pl.auto ? '<span class="tag">托管</span>' : '') + (one ? ALARM : '') + '</span>'
+      + '<span class="sc">' + pl.score + ' 分</span></div>';
+  }
+
+  const mt = myTurn();
+  $('me').classList.toggle('turn', V.phase === 'play' && n > 0 && V.turn === base && !V.trickEnd);
+  $('myNm').textContent = you >= 0 || !n ? '你' : nm(base);
+  $('mySc').textContent = n && playing ? (V.dealer === base ? '庄 · ' : '') + V.players[base].score + ' 分' : '';
+  $('myAlarm').hidden = !(you >= 0 && V.phase === 'play' && V.hand.length === 1);
+  if (you >= 0){
+    V.hand.forEach(c => {
+      const b = cardEl(c, 'button');
+      b.type = 'button';
+      if (sel.has(c.id)) b.classList.add('sel');
+      if (V.fresh === c.id) b.classList.add('fresh');
+      b.setAttribute('aria-pressed', sel.has(c.id));
+      b.onclick = () => { sel.has(c.id) ? sel.delete(c.id) : sel.add(c.id); hintIdx = -1; if (localMsg && localMsg.err) localMsg = null; render(); };
+      hand.appendChild(b);
+    });
+    fitHand();
+  } else if (playing && n){
+    const w = document.createElement('div'); w.className = 'watch';
+    w.textContent = '你在观战，下一局开始时上桌。这个位置是 ' + nm(base) + '，手里还有 ' + V.players[base].count + ' 张牌。';
+    hand.appendChild(w);
+  }
+  $('playBtn').disabled = !mt || !sel.size;
+  $('passBtn').disabled = !mt || !V.last;
+  $('hintBtn').disabled = !mt;
+  $('unautoBtn').hidden = !(you >= 0 && V.players[you].auto && V.phase === 'play');
+
+  $('lobby').classList.toggle('on', V.phase === 'lobby');
+  if (V.phase === 'lobby') renderLobby();
+  $('result').classList.toggle('on', V.phase === 'over');
+  if (V.phase === 'over') renderResult();
+  tickClock();
+  fxCheck();
+}
+function fxCheck(){
+  const g = V.msg;
+  if (V.phase === 'lobby' || !g || g.k !== 'play') return FX.check(null);
+  FX.check(g.n, {bomb:g.combo.type === 'bomb', king:g.combo.size === 99, one:V.players[g.i].count === 1, name:nm(g.i), mult:V.mult});
+}
+function fitHand(){
+  const hand = $('hand'), els = hand.children, n = els.length;
+  if (n < 2 || !els[0].classList.contains('card')) return;
+  const cw = els[0].offsetWidth, W = hand.clientWidth;
+  const gap = Math.min(6, (W - n*cw) / (n-1));
+  for (let i = 1; i < n; i++) els[i].style.marginLeft = gap + 'px';
+}
+function tickClock(){
+  const c = $('clock');
+  const on = !!V && V.phase === 'play' && !V.trickEnd && leftAt > 0;
+  c.hidden = !on;
+  if (on) c.innerHTML = esc(nm(V.turn)) + ' 出牌<b>' + Math.max(0, Math.ceil((leftAt - Date.now()) / 1000)) + ' 秒</b>';
+}
+setInterval(tickClock, 1000);
+function inviteLink(){ return location.origin + location.pathname + '?r=' + room; }
+function renderLobby(){
+  let h = '<h2>房间号</h2><div class="bigcode">' + esc(V.code) + '</div>'
+    + '<p class="note">把房间号或下面的链接发给朋友。在微信里打不开时，复制链接到手机浏览器打开。</p>'
+    + '<div class="linkbox" id="linkBox">' + esc(inviteLink()) + '</div>'
+    + '<div class="row"><button class="tiny" type="button" data-act="copy">复制邀请链接</button></div><div class="seatlist">';
+  V.members.forEach((m, i) => {
+    h += '<div class="seatrow' + (m.you ? ' mine' : '') + '"><span class="no">' + (i < 4 ? (i+1) + ' 号位' : '观战') + '</span>'
+      + '<span class="occ">' + esc(m.name) + (m.you ? '（你）' : '') + '</span>'
+      + '<span class="st">' + (i === 0 ? '房主' : '') + (m.online ? '' : ' 离线') + '</span></div>';
+  });
+  h += '</div>';
+  if (V.host) h += '<label class="check" for="fillIn"><input type="checkbox" id="fillIn"' + (V.fill ? ' checked' : '') + '>空位用电脑补齐到 4 人</label>';
+  else h += '<p class="note">' + (V.fill ? '空位会由电脑补齐到 4 人。' : '不加电脑，只有在座的人打。') + '等房主开局。</p>';
+  const can = V.host && (V.fill || V.members.length >= 2);
+  h += '<div class="row"><button class="btn" type="button" data-act="leave">离开房间</button>'
+    + (V.host ? '<button class="btn go" type="button" data-act="start"' + (can ? '' : ' disabled') + '>开始发牌</button>' : '') + '</div>';
+  if (V.host && !can) h += '<p class="warn">至少要两个人，或者勾上电脑补位。</p>';
+  $('lobbySheet').innerHTML = h;
+}
+function renderResult(){
+  const o = V.over, w = o.winner, m = V.you;
+  let h = '<h2>' + (w === m ? '你<em>赢了</em>' : esc(nm(w)) + ' 先出完，<em>' + (m >= 0 ? '你干瞪眼' : '其余干瞪眼') + '</em>') + '</h2>';
+  h += '<table><thead><tr><th>玩家</th><th>剩牌</th><th>本局</th><th>总分</th></tr></thead><tbody>';
+  V.players.forEach((p, i) => {
+    const r = o.rows[i], g = r.gain;
+    const left = i === w ? '出完' : '<div class="left">' + o.hands[i].map(c =>
+      '<span class="mini' + ((c.s === '♥' || c.s === '♦' || c.r === 17) ? ' red' : '') + '">' + cardText(c) + '</span>').join('') + '</div>';
+    h += '<tr><td>' + esc(nm(i)) + (r.shut ? '（一张没出，翻倍）' : '') + '</td><td>' + left + '</td><td class="' + (g >= 0 ? 'plus' : 'minus') + '">' + (g > 0 ? '+' : '') + g + '</td><td>' + p.score + '</td></tr>';
+  });
+  h += '</tbody></table><p class="note">本局倍数 ×' + V.mult + '。</p>';
+  if (V.host) h += '<div class="row"><button class="btn" type="button" data-act="lobby">回房间</button><button class="btn go" type="button" data-act="start">再来一局</button></div>';
+  else h += '<p class="note">等房主开下一局。</p>';
+  $('resultSheet').innerHTML = h;
+}
+
+/* ---------- 操作 ---------- */
+$('playBtn').onclick = () => {
+  if (!myTurn()) return;
+  const cards = V.hand.filter(c => sel.has(c.id)), prev = V.last ? V.last.combo : null;
+  const combo = resolve(cards, prev, V.hand.length);
+  if (!combo){
+    const any = interpret(cards).filter(c => c.type !== 'joker1').length;
+    say(!any ? (cards.length === 1 ? '王不能单出，除非手里只剩这一张' : '这几张凑不成牌型')
+      : '压不住：要出比 ' + comboName(prev) + ' 正好大一级的同牌型，或者炸弹', true);
+    return render();
+  }
+  $('playBtn').disabled = true;
+  act('play', {cards:cards.map(c => c.id)});
+};
+$('passBtn').onclick = () => { if (myTurn() && V.last){ $('passBtn').disabled = true; act('pass'); } };
+$('hintBtn').onclick = () => {
+  if (!myTurn()) return;
+  const others = V.players.filter((_, i) => i !== V.you).map(p => p.count);
+  const list = rankPlays(V.hand, V.last ? V.last.combo : null, Math.min(...others));
+  if (!list.length){ say('没有能压的牌，只能不要', true); sel.clear(); return render(); }
+  hintIdx = (hintIdx + 1) % list.length;
+  const p = list[hintIdx];
+  sel = new Set(p.cards.map(c => c.id));
+  say('提示：' + comboName(p.combo) + (list.length > 1 ? '（再点换一手）' : ''));
+  render();
+};
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'leave'){ if (room){ const r = room; api('/api/act', {room:r, type:'leave'}).catch(() => {}); exitRoom(''); } }
+  else if (a === 'copy'){
+    const done = () => { b.textContent = '已复制'; };
+    const manual = () => { b.textContent = '请长按上面的链接复制'; };
+    try { navigator.clipboard.writeText(inviteLink()).then(done, manual); } catch(err){ manual(); }
+  }
+  else if (room) act(a);
+});
+document.addEventListener('change', e => { if (e.target.id === 'fillIn') act('fill', {on:e.target.checked}); });
+$('createBtn').onclick = create;
+$('homeForm').addEventListener('submit', e => { e.preventDefault(); joinRoom(); });
+$('rulesBtn').onclick = () => $('rules').classList.add('on');
+$('rulesClose').onclick = () => $('rules').classList.remove('on');
+$('rules').onclick = e => { if (e.target === $('rules')) $('rules').classList.remove('on'); };
+window.addEventListener('resize', () => { if (V) fitHand(); });
+setInterval(() => { if (room) api('/api/ping', {room}).catch(() => {}); }, 4 * 60000);
+
+/* 启动：记住的昵称；链接里带房间号就直接进 */
+$('nameIn').value = store.get('gdy-name') || '';
+const linkRoom = (new URLSearchParams(location.search).get('r') || '').trim();
+if (/^\d{4}$/.test(linkRoom)){
+  $('codeIn').value = linkRoom;
+  if ($('nameIn').value.trim()) joinRoom(); else homeErr('朋友邀请你进 ' + linkRoom + ' 号房间，填个昵称再点加入。');
+}
+render();
+</script>
+</body>
+</html>
