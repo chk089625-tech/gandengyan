@@ -11,6 +11,7 @@ const STATIC = {
   '/logic.js': ['logic.js', 'application/javascript; charset=utf-8'],
 };
 const BOT_NAMES = ['老张', '阿梅', '小六'];
+const VOICE_FILE = /^[A-Za-z0-9]+(-\d+)?\.(mp3|m4a|wav)$/;
 const TURN_MS = 30000, OFFLINE_PLAY_MS = 5000, OFFLINE_LOBBY_MS = 120000, ROOM_IDLE_MS = 30 * 60000;
 const MAX_MEMBERS = 8, MAX_ROOMS = 500;
 const rooms = new Map();
@@ -254,6 +255,21 @@ const server = http.createServer(async (req, res) => {
       const [file, type] = STATIC[u.pathname];
       res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
       return fs.createReadStream(path.join(__dirname, file)).pipe(res);
+    }
+    if (req.method === 'GET' && u.pathname === '/voice/list.json') {
+      let list = [];
+      try { list = fs.readdirSync(path.join(__dirname, 'voice')).filter(f => VOICE_FILE.test(f)); } catch (e) {}
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(JSON.stringify(list));
+    }
+    if (req.method === 'GET' && u.pathname.startsWith('/voice/')) {
+      const f = u.pathname.slice(7);
+      if (!VOICE_FILE.test(f)) return send(res, 404, { error: '没有这个文件' });
+      const fp = path.join(__dirname, 'voice', f);
+      if (!fs.existsSync(fp)) return send(res, 404, { error: '没有这个文件' });
+      const ext = f.split('.').pop();
+      res.writeHead(200, { 'Content-Type': { mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav' }[ext], 'Cache-Control': 'public, max-age=86400' });
+      return fs.createReadStream(fp).pipe(res);
     }
     if (req.method === 'GET' && u.pathname === '/healthz') return send(res, 200, { ok: true, rooms: rooms.size });
     if (req.method === 'GET' && u.pathname === '/api/events') {

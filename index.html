@@ -640,6 +640,7 @@ const FX = (() => {
       if (!ctx){ const AC = window.AudioContext || window.webkitAudioContext; if (AC) ctx = new AC(); }
       if (ctx && ctx.state === 'suspended') ctx.resume();
     } catch(e){}
+    if (ctx && !BUF.__pre){ BUF.__pre = 1; preload(); }
     if (!unlocked && canSpeak()){ unlocked = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch(e){} }
   };
   document.addEventListener('pointerdown', wake);
@@ -647,7 +648,7 @@ const FX = (() => {
     level = level === 'all' ? 'fx' : level === 'fx' ? 'off' : 'all';
     try { localStorage.setItem('gdy-sound', level); } catch(e){}
     paint(); wake();
-    if (level !== 'all' && canSpeak()) try { speechSynthesis.cancel(); } catch(e){}
+    if (level !== 'all'){ if (canSpeak()) try { speechSynthesis.cancel(); } catch(e){} if (curVoice) try { curVoice.stop(); } catch(e){} }
     if (level === 'all') speak('声音全开', 0);
     else if (level === 'fx') slap();
   };
@@ -719,7 +720,55 @@ const FX = (() => {
       speechSynthesis.speak(u);
     } catch(e){}
   }
-  const RK = {3:'三',4:'四',5:'五',6:'六',7:'七',8:'八',9:'九',10:'十',11:'J',12:'Q',13:'K',14:'A',15:'二'};
+  /* 系统语音不念英文字母（会读成“大写J”），改用牌桌叫法 */
+  const RK = {3:'三',4:'四',5:'五',6:'六',7:'七',8:'八',9:'九',10:'十',11:'勾',12:'圈',13:'凯',14:'尖',15:'二'};
+  const RKEY = {3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',11:'J',12:'Q',13:'K',14:'A',15:'2'};
+  function clipKey(c){
+    if (c.type === 'single') return RKEY[c.rank];
+    if (c.type === 'pair') return 'd' + RKEY[c.rank];
+    return {joker1:'wang', straight:'shunzi', pairs:'liandui'}[c.type] || (c.size === 99 ? 'wangzha' : 'zhadan');
+  }
+  /* ---- 真人录音：服务器 voice 文件夹里有对应文件就播录音，没有就用系统语音 ---- */
+  const CLIPS = {}, BUF = {};
+  let curVoice = null, voiceEnd = 0;
+  try {
+    fetch('voice/list.json', {cache:'no-cache'}).then(r => r.ok ? r.json() : []).then(list => {
+      if (!Array.isArray(list)) return;
+      list.forEach(f => {
+        const m = /^([A-Za-z0-9]+)(?:-\d+)?\.(mp3|m4a|wav)$/.exec(f);
+        if (m) (CLIPS[m[1]] = CLIPS[m[1]] || []).push('voice/' + f);
+      });
+      if (ctx) preload();
+    }).catch(() => {});
+  } catch(e){}
+  function loadClip(url){
+    if (!BUF[url]) BUF[url] = fetch(url).then(r => r.arrayBuffer()).then(ab => new Promise((ok, bad) => ctx.decodeAudioData(ab, ok, bad)));
+    return BUF[url];
+  }
+  function preload(){ Object.values(CLIPS).forEach(us => us.forEach(u => loadClip(u).catch(() => {}))); }
+  const RATE = [1, 1.06, .95, 1.03];
+  function playClip(key, seat, keep){
+    const list = CLIPS[key];
+    if (!list || !ctx) return false;
+    const url = list[Math.floor(Math.random() * list.length)];
+    loadClip(url).then(buf => {
+      try {
+        if (!keep && curVoice){ try { curVoice.stop(); } catch(e){} curVoice = null; voiceEnd = 0; }
+        const src = ctx.createBufferSource(), g = ctx.createGain();
+        src.buffer = buf; src.playbackRate.value = RATE[(seat || 0) % 4]; g.gain.value = 1;
+        src.connect(g); g.connect(ctx.destination);
+        const at = keep ? Math.max(ctx.currentTime, voiceEnd + .05) : ctx.currentTime;
+        src.start(at);
+        curVoice = src; voiceEnd = at + buf.duration / src.playbackRate.value;
+      } catch(e){}
+    }).catch(() => {});
+    return true;
+  }
+  function voice(key, text, seat, keep){
+    if (level !== 'all') return;
+    if (!playClip(key, seat, keep)) speak(text, seat, keep);
+  }
+
   function callout(c){
     if (c.type === 'single') return RK[c.rank];
     if (c.type === 'joker1') return '王';
@@ -750,7 +799,7 @@ const FX = (() => {
   function alarm(text, seat){
     add('<div class="siren"><b>报警</b><span></span></div>', 2300).querySelector('.siren span').textContent = text;
     sirenSound();
-    speak('报警，只剩一张', seat, true);
+    voice('baojing', '报警，只剩一张', seat, true);
   }
   return {
     reset(){ init = false; last = null; wasTurn = null; lastTick = ''; },
@@ -761,12 +810,12 @@ const FX = (() => {
       last = n;
       if (e.k === 'deal'){ shuffle(); return; }
       if (e.k === 'draw'){ swish(); return; }
-      if (e.k === 'pass'){ knock(); speak(PASS[Math.floor(Math.random() * PASS.length)], e.seat); return; }
+      if (e.k === 'pass'){ knock(); voice('buyao', PASS[Math.floor(Math.random() * PASS.length)], e.seat); return; }
       if (e.k !== 'play') return;
       const isBomb = e.combo.type === 'bomb';
       if (isBomb) bomb(e.combo.size === 99 ? '王炸' : '炸弹', e.name + ' · 倍数 ×' + e.mult);
       else slap(e.count);
-      speak(callout(e.combo), e.seat);
+      voice(clipKey(e.combo), callout(e.combo), e.seat);
       if (e.one) setTimeout(() => alarm(e.name + ' 只剩 1 张牌', e.seat), isBomb ? 1300 : 350);
     },
     /* 轮到自己时叮一声 */
