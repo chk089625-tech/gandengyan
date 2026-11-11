@@ -11,7 +11,7 @@ const STATIC = {
   '/logic.js': ['logic.js', 'application/javascript; charset=utf-8'],
 };
 const BOT_NAMES = ['老张', '阿梅', '小六'];
-const TURN_MS = 60000, OFFLINE_PLAY_MS = 15000, OFFLINE_LOBBY_MS = 120000, ROOM_IDLE_MS = 30 * 60000;
+const TURN_MS = 30000, OFFLINE_PLAY_MS = 5000, OFFLINE_LOBBY_MS = 120000, ROOM_IDLE_MS = 30 * 60000;
 const MAX_MEMBERS = 8, MAX_ROOMS = 500;
 const rooms = new Map();
 
@@ -58,7 +58,7 @@ function deal(r, dealer) {
   hands[dealer].push(deck.pop());
   hands.forEach(L.sortHand);
   Object.assign(r, { phase: 'play', hands, played: Array(n).fill(false), deck, turn: dealer, dealer, last: null, mult: 1,
-    show: Array(n).fill(null), trickEnd: false, over: null, fresh: null, msg: { k: 'deal', i: dealer } });
+    show: Array(n).fill(null), trickEnd: false, over: null, fresh: null, msg: { k: 'deal', i: dealer, n: ++r.seq } });
   sync(r);
 }
 function minOpp(r, i) { return Math.min(...r.hands.filter((_, j) => j !== i).map(h => h.length)); }
@@ -74,7 +74,7 @@ function doPlay(r, i, cards, combo) {
   if (!r.hands[i].length) return finish(r, i);
   advance(r);
 }
-function doPass(r, i) { r.show[i] = 'pass'; r.msg = { k: 'pass', i }; advance(r); }
+function doPass(r, i) { r.show[i] = 'pass'; r.msg = { k: 'pass', i, n: ++r.seq }; advance(r); }
 function advance(r) {
   r.turn = (r.turn + 1) % r.players.length;
   if (r.last && r.turn === r.last.by) r.trickEnd = true;
@@ -86,7 +86,7 @@ function endTrick(r) {
   let c = null;
   if (r.deck.length) { c = r.deck.pop(); r.hands[i].push(c); L.sortHand(r.hands[i]); }
   r.fresh = c ? { i, id: c.id } : null;
-  r.msg = { k: 'draw', i, c };
+  r.msg = { k: 'draw', i, c, n: ++r.seq };
   sync(r);
 }
 function finish(r, w) {
@@ -119,7 +119,7 @@ function sync(r) { r.v++; r.touched = Date.now(); schedule(r); broadcast(r); }
 function view(r, pid) {
   const you = r.players.findIndex(p => p.pid === pid);
   let msg = r.msg;
-  if (msg && msg.k === 'draw' && msg.i !== you) msg = { k: 'draw', i: msg.i, c: msg.c ? true : null };
+  if (msg && msg.k === 'draw' && msg.i !== you) msg = { k: 'draw', i: msg.i, c: msg.c ? true : null, n: msg.n };
   return {
     code: r.code, v: r.v, phase: r.phase, you, host: !!r.members[0] && r.members[0].pid === pid, fill: r.fill,
     members: r.members.map(m => ({ name: m.name, online: online(r, m.pid), you: m.pid === pid })),
